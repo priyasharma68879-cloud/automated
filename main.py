@@ -81,9 +81,6 @@ def get_semaphore() -> asyncio.Semaphore:
 
 # ── Message Patterns (BigCity + Ujala + Flipkart only) ───────────────────────
 # BigCity / Ujala reward SMS patterns
-OTP_BIGCITY_PATTERN = re.compile(
-    r"(?:OTP|one.time.password|verification.code)\s*(?:is|:)?\s*(\d{4,8})",
-    re.IGNORECASE,
 )
 REWARD_BIGCITY_PATTERN = re.compile(
     r"Reward Code for\s+Ujala\s+\w+\s+Consumer\s+promo\s+is\s+([A-Z0-9]+)",
