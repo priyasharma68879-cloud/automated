@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+bot_state.json
+users.json
+panels.json
+sms.txt
+*.log

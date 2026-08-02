@@ -1,0 +1,37 @@
+{
+  "1446058092": {
+    "username": "Blankk020",
+    "access_expiry": 0,
+    "referrals_given": 0,
+    "referred_by": null,
+    "joined_at": 1785643808
+  },
+  "6894923643": {
+    "username": "",
+    "access_expiry": 0,
+    "referrals_given": 0,
+    "referred_by": null,
+    "joined_at": 1785648500
+  },
+  "1860375373": {
+    "username": "",
+    "access_expiry": 0,
+    "referrals_given": 1,
+    "referred_by": null,
+    "joined_at": 1785649229
+  },
+  "5578102792": {
+    "username": "Devj7",
+    "access_expiry": 1785667634.395616,
+    "referrals_given": 0,
+    "referred_by": null,
+    "joined_at": 1785649567
+  },
+  "1964738492": {
+    "username": "samriti_kalotra",
+    "access_expiry": 0,
+    "referrals_given": 0,
+    "referred_by": 1860375373,
+    "joined_at": 1785649972
+  }
+}
