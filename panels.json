@@ -1,0 +1,488 @@
+{
+  "p_1785643893_0_0": {
+    "name": "Panel 1",
+    "api_url": "https://goli-467be-default-rtdb.firebaseio.com",
+    "auth_key": "H",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://zxkaiz.vercel.app/?s=IXo-Y3NUWSssG0pXfx0QIVsYYQBAZVQPZVcGIFkMOEV3EDFREW9WUCg9KSA6E1gwdghWAHIeVSUVS258VH4UBmoJQRVdAXRZNUIiTBJhWnB4JQ",
+    "added_date": "2026-08-02"
+  },
+  "p_1785643894_1_1": {
+    "name": "Panel 2",
+    "api_url": "https://komaljah-default-rtdb.firebaseio.com",
+    "auth_key": "Sexy",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://zxkaiz.vercel.app/?s=IXo-Y3NUWSssG0pXfx0cIVoQIF4XOhsOLVUCM1QNeUMuBicbFShCXDg5OCQgGR88NwYbQXJZVXQVIilMD3AaSCQRWWRyGDVZegAtVBpjTQ",
+    "added_date": "2026-08-02"
+  },
+  "p_1785643895_2_2": {
+    "name": "Panel 3",
+    "api_url": "https://kumaru-6eec1-default-rtdb.firebaseio.com",
+    "auth_key": "Sex",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://zxkaiz.vercel.app/?s=IXo-Y3NUWSssG0pXfx0cO1oQPkFbZFMPKwJOIl0fNUQ2FmhHByVSFzwxOSQrF0I6MQQXDj9fVWIVGm4OVAFTEmofQSoaQ3Z5PxtlWBIvEkQ",
+    "added_date": "2026-08-02"
+  },
+  "p_1785643895_3_3": {
+    "name": "Panel 4",
+    "api_url": "https://pehla-panel-green-default-rtdb.firebaseio.com",
+    "auth_key": "Hey",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://zxkaiz.vercel.app/?s=IXo-Y3NUWSssG0pXfx0HK18dLRkGM1gPJB4ENF0cOhw-ByNUBi1EFCgsLyNnEFgtPQlYHjVbGGBUHiEWWnBdSHIRKyNBW3gTNkB_FzskSQ1uejY",
+    "added_date": "2026-08-02"
+  },
+  "p_1785643896_4_4": {
+    "name": "Panel 5",
+    "api_url": "https://paisa-8e4f4-default-rtdb.firebaseio.com",
+    "auth_key": "H",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "http://profex.site.je/?s=aHR0cHM6Ly9wYWlzYS04ZTRmNC1kZWZhdWx0LXJ0ZGIuZmlyZWJhc2Vpby5jb218fHxI",
+    "added_date": "2026-08-02"
+  },
+  "p_1785643897_5_5": {
+    "name": "Panel 6",
+    "api_url": "https://kali-1b217-default-rtdb.firebaseio.com",
+    "auth_key": "1",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://zxkaiz.vercel.app/?s=IXo-Y3NUWSssG0pXfx0cL1sYYQUUYAddZVcGIFkMOEV3EDFREW9WUCg9KSA6E1gwdghWAHIeVSUVS24FVH4UBmoJQRVdAXRrIgkkXFE8",
+    "added_date": "2026-08-02"
+  },
+  "p_1785643898_6_6": {
+    "name": "Panel 7",
+    "api_url": "https://mafiaaaa2oppp-default-rtdb.firebaseio.com",
+    "auth_key": "J",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://zxkaiz.vercel.app/?s=IXo-Y3NUWSssG0pXfx0aL1EYLVUXMwQFOEMTa1wcMlAvDjEYATVUW3Q-IjMsFFAsPQJWQzNdGmwbUycWTHB8SGQRD2QCWxxUIxtnSA",
+    "added_date": "2026-08-02"
+  },
+  "p_1785644015_0_7": {
+    "name": "Panel 8",
+    "api_url": "https://sada-bcbcd-default-rtdb.firebaseio.com",
+    "auth_key": "H",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "http://profex.site.je/?s=aHR0cHM6Ly9zYWRhLWJjYmNkLWRlZmF1bHQtcnRkYi5maXJlYmFzZWlvLmNvbXx8fEg=",
+    "added_date": "2026-08-02"
+  },
+  "p_1785644016_1_8": {
+    "name": "Panel 9",
+    "api_url": "https://akajay-b1b16-default-rtdb.firebaseio.com",
+    "auth_key": "B",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "http://profex.site.je/?s=aHR0cHM6Ly9ha2FqYXktYjFiMTYtZGVmYXVsdC1ydGRiLmZpcmViYXNlaW8uY29tfHx8Qg==",
+    "added_date": "2026-08-02"
+  },
+  "p_1785644178_15_33": {
+    "name": "Panel 34",
+    "api_url": "https://paro-df7ed-default-rtdb.firebaseio.com",
+    "auth_key": "B",
+    "device_node": "clients",
+    "message_node": "messages",
+    "panel_url": "http://profex.site.je/?s=aHR0cHM6Ly9wYXJvLWRmN2VkLWRlZmF1bHQtcnRkYi5maXJlYmFzZWlvLmNvbXx8fEI=",
+    "added_date": "2026-08-02"
+  },
+  "p_1785656291_0_10": {
+    "name": "Panel 11",
+    "api_url": "https://roy8-c8fe7-default-rtdb.firebaseio.com",
+    "auth_key": "H",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://zxkaiz.vercel.app/?s=IXo-Y3NUWSssG0pXfx0FIU5JYVdONFNdZVcGIFkMOEV3EDFREW9WUCg9KSA6E1gwdghWAHIeVSUVS258VH4UBmoJQRxAGGETJw",
+    "added_date": "2026-08-02"
+  },
+  "p_1785656306_1_11": {
+    "name": "Panel 12",
+    "api_url": "https://admin-chorsala-default-rtdb.firebaseio.com",
+    "auth_key": "H",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://zxkaiz.vercel.app/?s=IXo-Y3NUWSssG0pXfx0WKloYIhkVOlkYO1IPJxUdMVc7FylBXjNEXTh2LSg7E1M-Kw5QAn5RGCMVXW5fVGgUImofQSoaQ3ZwPg8sWwA2SBsn",
+    "added_date": "2026-08-02"
+  },
+  "p_1785656777_0_12": {
+    "name": "Panel 13",
+    "api_url": "https://afroar-66af-default-rtdb.firebaseio.com",
+    "auth_key": "https://afroar-66af-default-rtdb.firebaseio.com",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "http://firexpanel.com/?s=aHR0cHM6Ly9hZnJvYXItNjZhZi1kZWZhdWx0LXJ0ZGIuZmlyZWJhc2Vpby5jb218fHxodHRwczovL2Fmcm9hci02NmFmLWRlZmF1bHQtcnRkYi5maXJlYmFzZWlvLmNvbQ==",
+    "added_date": "2026-08-02"
+  },
+  "p_1785658059_0_13": {
+    "name": "Panel 14",
+    "api_url": "https://admin-panel-client-a3ee5-default-rtdb.firebaseio.com",
+    "auth_key": "https://admin-panel-client-a3ee5-default-rtdb.firebaseio.com",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://annebellapanel.netlify.app/?s=aHR0cHM6Ly9hZG1pbi1wYW5lbC1jbGllbnQtYTNlZTUtZGVmYXVsdC1ydGRiLmZpcmViYXNlaW8uY29tfHx8aHR0cHM6Ly9hZG1pbi1wYW5lbC1jbGllbnQtYTNlZTUtZGVmYXVsdC1ydGRiLmZpcmViYXNlaW8uY29t",
+    "added_date": "2026-08-02"
+  },
+  "p_1785658706_0_14": {
+    "name": "Panel 15",
+    "api_url": "https://tinobiggand-default-rtdb.firebaseio.com",
+    "auth_key": "X",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "http://profex.site.je/?s=aHR0cHM6Ly90aW5vYmlnZ2FuZC1kZWZhdWx0LXJ0ZGIuZmlyZWJhc2Vpby5jb218fHxY",
+    "added_date": "2026-08-02"
+  },
+  "p_1785658791_0_15": {
+    "name": "Panel 16",
+    "api_url": "https://aaenop-2fe3b-default-rtdb.firebaseio.com",
+    "auth_key": "AIzaSyDbWz9viiCY6VnWHP0-Wo6TWZwCwu7Meg",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://badxweb.vercel.app/?s=aHR0cHM6Ly9hYWVub3AtMmZlM2ItZGVmYXVsdC1ydGRiLmZpcmViYXNlaW8uY29tfHx8QUl6YVN5RGJXejl2aWlDWTZWbldIUDAtV282VFdad0N3dTdNZWc=",
+    "added_date": "2026-08-02"
+  },
+  "p_1785658911_0_16": {
+    "name": "Panel 17",
+    "api_url": "https://ritesh0001-ea582-default-rtdb.firebaseio.com",
+    "auth_key": "AIzaSyDbWz9viiCY6VnWHP0-Wo6TWZwCwu7Meg",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://badxweb.vercel.app/?s=aHR0cHM6Ly9yaXRlc2gwMDAxLWVhNTgyLWRlZmF1bHQtcnRkYi5maXJlYmFzZWlvLmNvbXx8fEFJemFTeURiV3o5dmlpQ1k2Vm5XSFAwLVdvNlRXWndDd3U3TWVn",
+    "added_date": "2026-08-02"
+  },
+  "p_1785658912_2_18": {
+    "name": "Panel 19",
+    "api_url": "https://apkdriod-default-rtdb.firebaseio.com",
+    "auth_key": "AIzaSyDHdyW-rPI-77aq4G8I82Z0Sl4wtdFeBX4",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://badxweb.vercel.app/?s=aHR0cHM6Ly9hcGtkcmlvZC1kZWZhdWx0LXJ0ZGIuZmlyZWJhc2Vpby5jb218fHxBSXphU3lESGR5Vy1yUEktNzdhcTRHOEk4MlowU2w0d3RkRmVCWDQ=",
+    "added_date": "2026-08-02"
+  },
+  "p_1785658912_3_19": {
+    "name": "Panel 20",
+    "api_url": "https://apkpure-6eb6a-default-rtdb.firebaseio.com",
+    "auth_key": "AIzaSyCA3ms8hASuy0fgaR5fpJI75dClkeCxomE",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://badxweb.vercel.app/?s=aHR0cHM6Ly9hcGtwdXJlLTZlYjZhLWRlZmF1bHQtcnRkYi5maXJlYmFzZWlvLmNvbXx8fEFJemFTeUNBM21zOGhBU3V5MGZnYVI1ZnBKSTc1ZENsa2VDeG9tRQ==",
+    "added_date": "2026-08-02"
+  },
+  "p_1785658912_4_20": {
+    "name": "Panel 21",
+    "api_url": "https://bank-e-kyc-default-rtdb.firebaseio.com",
+    "auth_key": "AIzaSyDhmaTgotfymhkH-Ir0EHC_B1imQzqM3Iw",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://badxweb.vercel.app/?s=aHR0cHM6Ly9iYW5rLWUta3ljLWRlZmF1bHQtcnRkYi5maXJlYmFzZWlvLmNvbXx8fEFJemFTeURobWFUZ290ZnltaGtILUlyMEVIQ19CMWltUXpxTTNJdw==",
+    "added_date": "2026-08-02"
+  },
+  "p_1785658912_5_21": {
+    "name": "Panel 22",
+    "api_url": "https://tinmm88-b7db5-default-rtdb.firebaseio.com",
+    "auth_key": "AIzaSyBDanswTNTm4-E7v4wCX-_WsQ0A8ZaDIf4",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://badxweb.vercel.app/?s=aHR0cHM6Ly90aW5tbTg4LWI3ZGI1LWRlZmF1bHQtcnRkYi5maXJlYmFzZWlvLmNvbXx8fEFJemFTeUJEYW5zd1ROVG00LUU3djR3Q1gtX1dzUTBBOFphRElmNA==",
+    "added_date": "2026-08-02"
+  },
+  "p_1785658912_6_22": {
+    "name": "Panel 23",
+    "api_url": "https://e9turnament1-default-rtdb.firebaseio.com",
+    "auth_key": "AIzaSyDJrFRMMpcX0rCZZb23t-Mps_U_giS1ZiM",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://badxweb.vercel.app/?s=aHR0cHM6Ly9lOXR1cm5hbWVudDEtZGVmYXVsdC1ydGRiLmZpcmViYXNlaW8uY29tfHx8QUl6YVN5REpyRlJNTXBjWDByQ1paYjIzdC1NcHNfVV9naVMxWmlN",
+    "added_date": "2026-08-02"
+  },
+  "p_1785658913_7_23": {
+    "name": "Panel 24",
+    "api_url": "https://raaz-5287d-default-rtdb.firebaseio.com",
+    "auth_key": "H",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://badxweb.vercel.app/?s=aHR0cHM6Ly9yYWF6LTUyODdkLWRlZmF1bHQtcnRkYi5maXJlYmFzZWlvLmNvbXx8fEg=",
+    "added_date": "2026-08-02"
+  },
+  "p_1785658913_8_24": {
+    "name": "Panel 25",
+    "api_url": "https://e14turnament2-default-rtdb.firebaseio.com",
+    "auth_key": "AIzaSyBIjWavyJ8SHeZ14iLesyy4bAOr8EPGtB8",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://badxweb.vercel.app/?s=aHR0cHM6Ly9lMTR0dXJuYW1lbnQyLWRlZmF1bHQtcnRkYi5maXJlYmFzZWlvLmNvbXx8fEFJemFTeUJJaldhdnlKOFNIZVoxNGlMZXN5eTRiQU9yOEVQR3RCOA==",
+    "added_date": "2026-08-02"
+  },
+  "p_1785658913_9_25": {
+    "name": "Panel 26",
+    "api_url": "https://bossuun-default-rtdb.firebaseio.com",
+    "auth_key": "AIzaSyBfQobM5HmnK6khogyF4ytOX7E9N0e_lAQ",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://badxweb.vercel.app/?s=aHR0cHM6Ly9ib3NzdXVuLWRlZmF1bHQtcnRkYi5maXJlYmFzZWlvLmNvbXx8fEFJemFTeUJmUW9iTTVIbW5LNmtob2d5RjR5dE9YN0U5TjBlX2xBUQ==",
+    "added_date": "2026-08-02"
+  },
+  "p_1785658913_10_26": {
+    "name": "Panel 27",
+    "api_url": "https://jsjsjdj-7f0d1-default-rtdb.firebaseio.com",
+    "auth_key": "AIzaSyCPJL-eDjeLSamlXrLz44ONBevUgSTVxzU",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://badxweb.vercel.app/?s=aHR0cHM6Ly9qc2pzamRqLTdmMGQxLWRlZmF1bHQtcnRkYi5maXJlYmFzZWlvLmNvbXx8fEFJemFTeUNQSkwtZURqZUxTYW1sWHJMejQ0T05CZXZVZ1NUVnh6VQ==",
+    "added_date": "2026-08-02"
+  },
+  "p_1785658913_11_27": {
+    "name": "Panel 28",
+    "api_url": "https://rahul-54fe9-default-rtdb.firebaseio.com",
+    "auth_key": "AIzaSyB7QRdVFsu_hnKv_-u1RpAAnTVyO4Fz-sM",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://badxweb.vercel.app/?s=aHR0cHM6Ly9yYWh1bC01NGZlOS1kZWZhdWx0LXJ0ZGIuZmlyZWJhc2Vpby5jb218fHxBSXphU3lCN1FSZFZGc3VfaG5Ldl8tdTFScEFBblRWeU80Rnotc00=",
+    "added_date": "2026-08-02"
+  },
+  "p_1785658914_12_28": {
+    "name": "Panel 29",
+    "api_url": "https://runjun-master-panel-default-rtdb.firebaseio.com",
+    "auth_key": "AIzaSyBawSxrwOxhTzKzCv20-LkcoxK7n6y4msc",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://badxweb.vercel.app/?s=aHR0cHM6Ly9ydW5qdW4tbWFzdGVyLXBhbmVsLWRlZmF1bHQtcnRkYi5maXJlYmFzZWlvLmNvbXx8fEFJemFTeUJhd1N4cndPeGhUekt6Q3YyMC1Ma2NveEs3bjZ5NG1zYw==",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660379_0_28": {
+    "name": "Panel 29",
+    "api_url": "https://rajabhaya-default-rtdb.firebaseio.com",
+    "auth_key": "AIzaSyBZ-NjsWo3XnO8o76MK6UMxnKLKZTU-fv0",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://profexhub.org/?s=aHR0cHM6Ly9yYWphYmhheWEtZGVmYXVsdC1ydGRiLmZpcmViYXNlaW8uY29tfHx8QUl6YVN5QlotTmpzV28zWG5POG83Nk1LNlVNeG5LTEtaVFUtZnYw",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660384_0_29": {
+    "name": "Panel 30",
+    "api_url": "https://strange-2e4aa-default-rtdb.firebaseio.com",
+    "auth_key": "AIzaSyCGNLAmcgJgquS_wQS8DDinCdXg0xtRWm4",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://profexhub.org/?s=aHR0cHM6Ly9zdHJhbmdlLTJlNGFhLWRlZmF1bHQtcnRkYi5maXJlYmFzZWlvLmNvbXx8fEFJemFTeUNHTkxBbWNnSmdxdVNfd1FTOEREaW5DZFhnMHh0UldtNA==",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660779_0_30": {
+    "name": "Panel 31",
+    "api_url": "https://kumarlive1-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://kumarlive1-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660779_1_31": {
+    "name": "Panel 32",
+    "api_url": "https://stsfk30aug-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://stsfk30aug-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660779_2_32": {
+    "name": "Panel 33",
+    "api_url": "https://rameshwar-7okt-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://rameshwar-7okt-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660779_3_33": {
+    "name": "Panel 34",
+    "api_url": "https://jamtara181-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://jamtara181-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660779_4_34": {
+    "name": "Panel 35",
+    "api_url": "https://mahanivip-kituk10-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://mahanivip-kituk10-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660780_5_35": {
+    "name": "Panel 36",
+    "api_url": "https://dogla-de225-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://dogla-de225-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660782_6_36": {
+    "name": "Panel 37",
+    "api_url": "https://gren-ff2af-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://gren-ff2af-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660782_7_37": {
+    "name": "Panel 38",
+    "api_url": "https://loda-5029e-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://loda-5029e-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660783_8_38": {
+    "name": "Panel 39",
+    "api_url": "https://mpari-6a6e5-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://mpari-6a6e5-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660783_9_39": {
+    "name": "Panel 40",
+    "api_url": "https://comeback-5b876-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://comeback-5b876-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660783_10_40": {
+    "name": "Panel 41",
+    "api_url": "https://strom-90e84-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://strom-90e84-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660784_11_41": {
+    "name": "Panel 42",
+    "api_url": "https://singhaana-6f199-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://singhaana-6f199-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660784_12_42": {
+    "name": "Panel 43",
+    "api_url": "https://flash-v7powerengine-v7-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://flash-v7powerengine-v7-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660785_13_43": {
+    "name": "Panel 44",
+    "api_url": "https://money-ace2c-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://money-ace2c-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660785_14_44": {
+    "name": "Panel 45",
+    "api_url": "https://vecna-82db2-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://vecna-82db2-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660785_15_45": {
+    "name": "Panel 46",
+    "api_url": "https://rajputchuttad-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://rajputchuttad-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660785_16_46": {
+    "name": "Panel 47",
+    "api_url": "https://panel-wala-v11-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://panel-wala-v11-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660786_17_47": {
+    "name": "Panel 48",
+    "api_url": "https://rantaishita-f7614-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://rantaishita-f7614-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660786_18_48": {
+    "name": "Panel 49",
+    "api_url": "https://myapp-8228a-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://myapp-8228a-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660786_19_49": {
+    "name": "Panel 50",
+    "api_url": "https://pm-kisan-01hfg-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://pm-kisan-01hfg-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660786_20_50": {
+    "name": "Panel 51",
+    "api_url": "https://craxs-4c542-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://craxs-4c542-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660787_21_51": {
+    "name": "Panel 52",
+    "api_url": "https://bittu-2d39e-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://bittu-2d39e-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660788_22_52": {
+    "name": "Panel 53",
+    "api_url": "https://myabtar-default-rtdb.firebaseio.com",
+    "auth_key": "",
+    "device_node": null,
+    "message_node": "HTTP 404",
+    "panel_url": "https://myabtar-default-rtdb.firebaseio.com",
+    "added_date": "2026-08-02"
+  },
+  "p_1785660850_0_53": {
+    "name": "Panel 54",
+    "api_url": "https://rajakk-80ecd-default-rtdb.firebaseio.com",
+    "auth_key": "AIzaSyBi4gFjXgjuOhtuKEUPd-b8gIweYegWD4w",
+    "device_node": "",
+    "message_node": "messages",
+    "panel_url": "https://firexpanel.com/?s=aHR0cHM6Ly9yYWpha2stODBlY2QtZGVmYXVsdC1ydGRiLmZpcmViYXNlaW8uY29tfHx8QUl6YVN5Qmk0Z0ZqWGdqdU9odHVLRVVQZC1iOGdJd2VZZWdXRDR3",
+    "added_date": "2026-08-02"
+  }
+}
