@@ -99,11 +99,6 @@ REWARD_FLIPKART_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# OTP detection (for BigCity/Ujala)
-OTP_BIGCITY_PATTERN = re.compile(
-    r"Your OTP to register is\s+(\d{4,6})",
-    re.IGNORECASE,
-)
 
 # ── JSON helpers ──────────────────────────────────────────────────────────────
 def load_json(path, default):
