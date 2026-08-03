@@ -1,5 +1,5 @@
 """
-SMS Panel Monitor - Universal Version
+SMS Panel Monitor - Universal Version (Enhanced Structure Detection)
 ======================================
 - Supports ZXKAI (XOR), Profex (B64), and Standard Firebase panels
 - Auto-detects Firebase structure (root, /clients, /devices, etc.)
@@ -158,11 +158,14 @@ async def api_fetch(client, url, timeout=15):
             return None, str(e)
 
 def is_valid_device_id(k):
-    if not isinstance(k, str): return False
-    # Exclude common node names
-    if k.lower() in ["messages", "clients", "devices", "users", "all_devices", "nodes", "settings", "sms", "logs"]:
+    if not isinstance(k, str):
         return False
-    return 8 <= len(k) <= 45
+    RESERVED = {"messages", "clients", "devices", "users", "all_devices", "nodes",
+                "settings", "sms", "logs", "info", "webhook", "config", "auth",
+                "keys", "rules", "index"}
+    if k.lower() in RESERVED:
+        return False
+    return len(k) > 3  # accept any non‑reserved key longer than 3 chars
 
 async def discover_structure(client, api_url, auth_key):
     """
@@ -171,39 +174,76 @@ async def discover_structure(client, api_url, auth_key):
     """
     auth_suffix = f"?auth={auth_key}" if auth_key else ""
     
-    # 1. Check root
-    root_data, error = await api_fetch(client, f"{api_url}/.json{auth_suffix}&shallow=true")
+    # 1. Try to get root keys (without shallow, but limit to first level)
+    root_data, error = await api_fetch(client, f"{api_url}/.json{auth_suffix}")
     if error:
-        return None, error
-    if root_data and isinstance(root_data, dict):
-        keys = list(root_data.keys())
-        # Look for device IDs at root
-        device_ids = [k for k in keys if is_valid_device_id(k)]
-        if device_ids:
-            # If devices are at root, check where messages are
-            for m_node in ["messages", "sms", "logs"]:
-                if m_node in keys: return "", m_node
-            return "", ""  # Both at root
-            
-        # Check common sub-nodes
-        for node in ["clients", "devices", "users", "all_devices", "nodes"]:
-            if node in keys:
-                node_data, _ = await api_fetch(client, f"{api_url}/{node}.json{auth_suffix}&shallow=true")
-                if node_data and isinstance(node_data, dict):
-                    if any(is_valid_device_id(k) for k in node_data.keys()):
-                        # Found devices, now find where messages are
-                        # Often messages are at the same level as devices or in a separate node
-                        msg_node = node
-                        for m_node in ["messages", "sms", "logs"]:
-                            if m_node in keys:
-                                msg_node = m_node
-                                break
-                        return node, msg_node
-                        
-    return None, None
+        logger.warning(f"Root fetch error: {error}")
+        # Fallback: try shallow
+        root_data, _ = await api_fetch(client, f"{api_url}/.json{auth_suffix}&shallow=true")
+        if not root_data:
+            return None, "Cannot access root"
+
+    if not isinstance(root_data, dict):
+        return None, "Root is not a dictionary"
+
+    keys = list(root_data.keys())
+    
+    # 2. Find a node that contains devices (has children with message sub‑nodes)
+    for node in ["clients", "devices", "users", "all_devices", "nodes"] + keys:
+        if node not in keys:
+            continue
+        # Check if this node has device‑like children
+        node_data, _ = await api_fetch(client, f"{api_url}/{node}.json{auth_suffix}")
+        if not node_data or not isinstance(node_data, dict):
+            continue
+        # Look for children that themselves contain a 'messages' or 'sms' key
+        device_candidates = []
+        for child_key, child_val in node_data.items():
+            if is_valid_device_id(child_key):
+                # If this child is a dict that contains messages/sms/logs, it's a device
+                if isinstance(child_val, dict):
+                    if any(sub in child_val for sub in ["messages", "sms", "logs"]):
+                        device_candidates.append(child_key)
+        if device_candidates:
+            # Found devices, now check if messages are stored inside each device or globally
+            # Common: messages are under a separate top‑level node or inside each device
+            # Let's see if there is a top‑level messages node
+            if "messages" in keys:
+                return node, "messages"
+            elif "sms" in keys:
+                return node, "sms"
+            else:
+                # Maybe messages are inside each device? We'll set a dynamic path.
+                return node, f"{node}/{{device_id}}/messages"
+    # Fallback: check if root itself has devices (keys not reserved)
+    root_devices = [k for k in keys if is_valid_device_id(k)]
+    if root_devices:
+        # Check if root has a top‑level messages node
+        if "messages" in keys:
+            return "", "messages"
+        elif "sms" in keys:
+            return "", "sms"
+        else:
+            # Try to see if messages are stored inside each root device
+            sample = root_devices[0]
+            sample_data, _ = await api_fetch(client, f"{api_url}/{sample}.json{auth_suffix}")
+            if sample_data and isinstance(sample_data, dict):
+                if "messages" in sample_data:
+                    return "", f"{{device_id}}/messages"
+                if "sms" in sample_data:
+                    return "", f"{{device_id}}/sms"
+            return "", ""  # assume messages are in the device node itself
+    # If nothing found, try common predefined structures
+    for dev_node, msg_node in [("clients", "messages"), ("devices", "sms"), ("users", "logs")]:
+        test_data, _ = await api_fetch(client, f"{api_url}/{dev_node}.json{auth_suffix}&shallow=true")
+        if test_data and isinstance(test_data, dict):
+            if any(is_valid_device_id(k) for k in test_data.keys()):
+                return dev_node, msg_node
+    return None, "No device structure found"
 
 async def get_device_list(client, api_url, auth_key, device_node):
     auth_suffix = f"?auth={auth_key}" if auth_key else ""
+    # device_node might be empty for root
     path = f"/{device_node}" if device_node else ""
     url = f"{api_url}{path}/.json{auth_suffix}&shallow=true"
     data, error = await api_fetch(client, url, 15)
@@ -213,8 +253,13 @@ async def get_device_list(client, api_url, auth_key, device_node):
 
 async def get_messages(client, api_url, auth_key, message_node, device_id, limit: int = 5) -> dict:
     auth_suffix = f"&auth={auth_key}" if auth_key else ""
-    path = f"/{message_node}" if message_node else ""
-    url = f'{api_url}{path}/{device_id}/.json?orderBy="%24key"&limitToLast={limit}{auth_suffix}'
+    # Replace {device_id} if present in message_node
+    if message_node and "{device_id}" in message_node:
+        msg_path = message_node.replace("{device_id}", device_id)
+    else:
+        msg_path = f"{message_node}/{device_id}" if message_node else device_id
+    # Build URL
+    url = f'{api_url}/{msg_path}/.json?orderBy="%24key"&limitToLast={limit}{auth_suffix}'
     data, _ = await api_fetch(client, url, 15)
     return data or {}
 
@@ -340,7 +385,9 @@ async def process_device(client, panel_key, panel_config, device_id, state, user
 
             state[full_key] = True
             new_sent += 1
-    except: pass
+    except Exception as e:
+        logger.error(f"Process device {device_id} error: {e}")
+        pass
     
     return new_sent
 
@@ -372,11 +419,18 @@ async def monitor_panels(context: ContextTypes.DEFAULT_TYPE):
                         panel_config["device_node"] = dev_node
                         panel_config["message_node"] = msg_node
                         save_panels(panels)
+                        logger.info(f"Discovered structure for {panel_key}: device_node={dev_node}, message_node={msg_node}")
                     else:
+                        logger.warning(f"Could not discover structure for {panel_key}: {msg_node}")
                         continue
                 
                 dev_node = panel_config.get("device_node")
                 device_ids, error = await get_device_list(client, api_url, auth_key, dev_node)
+                
+                if error:
+                    logger.warning(f"Error getting device list for {panel_key}: {error}")
+                    if is_new_panel: state[init_key] = True
+                    continue
                 
                 if not device_ids:
                     if is_new_panel: state[init_key] = True
