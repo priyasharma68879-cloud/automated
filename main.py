@@ -36,7 +36,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8646908060:AAGzfWQcu6vDIXKbZTgYuJ-e0ueIHcAOqN8")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8646908060:AAGTZni_boQhI8h4gFBpTh0z2kW0ExDBU34")
 STATE_FILE = Path(__file__).parent / "bot_state.json"
 USERS_FILE = Path(__file__).parent / "users.json"
 PANELS_FILE = Path(__file__).parent / "panels.json"
