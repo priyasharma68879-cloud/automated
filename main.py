@@ -1071,23 +1071,42 @@ async def check_single_number_verify(update: Update, context: ContextTypes.DEFAU
         )
 
 
-# ─── Menus & Commands ─────────────────────────────────────────────────────────
+# ─── Keyboards ────────────────────────────────────────────────────────────────
 
-MAIN_KEYBOARD = ReplyKeyboardMarkup(
-    [
+def get_main_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
+    rows = [
         ["🚀 Start Scan", "🛑 Stop Scan"],
         ["🔢 Check Number"],
         ["➕ Add Panel", "🗑 Remove Panel"],
         ["📋 My Panels", "📊 My Status"],
         ["🔗 My Referral", "⏰ My Access"],
-    ],
+    ]
+    if is_admin:
+        rows.append(["👑 Give All Access", "👤 Give User Access"])
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+
+
+STOPPED_KEYBOARD = ReplyKeyboardMarkup(
+    [["🏠 Back to Menu"]],
     resize_keyboard=True,
 )
+
+# ─── Menus & Commands ─────────────────────────────────────────────────────────
 
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     is_admin = uid in ADMIN_IDS
+
+    # Clear any frozen / pending state before showing the menu
+    context.user_data.pop("stopped", None)
+    context.user_data.pop("awaiting_scan_settings", None)
+    context.user_data.pop("awaiting_add_my_panel", None)
+    context.user_data.pop("awaiting_remove_my_panel", None)
+    context.user_data.pop("awaiting_check_phone", None)
+    context.user_data.pop("awaiting_check_otp", None)
+    context.user_data.pop("awaiting_give_all_access", None)
+    context.user_data.pop("awaiting_give_user_access", None)
 
     my_panels = get_user_panels(uid)
     bot_info = await context.bot.get_me()
@@ -1107,6 +1126,14 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         access_str = f"❌ Expired | Refer {needed} more to unlock"
 
     role = "👑 Admin" if is_admin else "👤 Member"
+    total_users = len(load_users())
+
+    admin_section = (
+        f"\n━━━━━━━━━━━━━━━━━━\n"
+        f"🛠 *Admin Panel*\n"
+        f"👤 Total Users: {total_users}"
+        if is_admin else ""
+    )
 
     await update.effective_message.reply_text(
         f"🍊 *Swiggy Scraper Bot*\n"
@@ -1117,8 +1144,9 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👥 Referrals: {refs}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"🔒 Your panels are *PRIVATE* — nobody else can see or use them.\n\n"
-        f"🔗 Referral: `{ref_link}`",
-        reply_markup=MAIN_KEYBOARD,
+        f"🔗 Referral: `{ref_link}`"
+        f"{admin_section}",
+        reply_markup=get_main_keyboard(is_admin),
         parse_mode="Markdown",
     )
 
@@ -1314,21 +1342,96 @@ async def stop_scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     us = await session_manager.get(uid)
 
     if not us.is_running:
-        await update.message.reply_text("ℹ️ No scan is currently running.")
+        await update.message.reply_text(
+            "ℹ️ No scan is currently running.\n\nPress *🏠 Back to Menu* to continue.",
+            reply_markup=STOPPED_KEYBOARD,
+            parse_mode="Markdown",
+        )
+        context.user_data["stopped"] = True
         return
 
+    # Cancel all running tasks
     for task in list(us.running_tasks.values()):
         task.cancel()
     us.running_tasks.clear()
     us.is_running = False
 
+    # Clear every pending state so nothing bleeds through after stop
+    for key in [
+        "awaiting_scan_settings", "selected_panel",
+        "awaiting_add_my_panel", "awaiting_remove_my_panel",
+        "awaiting_check_phone", "awaiting_check_otp",
+        "awaiting_give_all_access", "awaiting_give_user_access",
+    ]:
+        context.user_data.pop(key, None)
+
+    # Close any dangling check session
+    await _close_check_session(context)
+
+    # Freeze: user must tap Back to Menu to resume
+    context.user_data["stopped"] = True
+
     await update.message.reply_text(
         f"🛑 *Scan Stopped*\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"📊 Scanned: {us.total_scanned}\n"
-        f"✅ Found: {us.total_found}",
+        f"✅ Found:   {us.total_found}\n\n"
+        f"Press *🏠 Back to Menu* to continue.",
+        reply_markup=STOPPED_KEYBOARD,
         parse_mode="Markdown",
     )
+
+
+# ─── Admin Access Grant ───────────────────────────────────────────────────────
+
+async def handle_give_all_access(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if uid not in ADMIN_IDS:
+        return
+    await update.message.reply_text(
+        "👑 *Give Access to ALL Users*\n\n"
+        "How many hours should each user get?\n\n"
+        "Send a number (e.g. `24` for 24 hours, `1` for 1 hour).",
+        parse_mode="Markdown",
+    )
+    context.user_data["awaiting_give_all_access"] = True
+
+
+async def handle_give_user_access(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if uid not in ADMIN_IDS:
+        return
+    await update.message.reply_text(
+        "👤 *Give Access to ONE User*\n\n"
+        "Send: `user_id hours`\n\n"
+        "Example: `123456789 24`\n\n"
+        "_(You can find a user's ID from their referral link)_",
+        parse_mode="Markdown",
+    )
+    context.user_data["awaiting_give_user_access"] = True
+
+
+async def _do_give_all_access(hours: int, app, admin_uid: int):
+    """Background task: grant access to every known user and report."""
+    users = load_users()
+    count = 0
+    for uid_str in users:
+        try:
+            grant_access_hours(int(uid_str), hours)
+            count += 1
+        except Exception:
+            pass
+    expiry_str = datetime.fromtimestamp(time.time() + hours * 3600).strftime("%H:%M %d/%m/%Y")
+    try:
+        await app.bot.send_message(
+            admin_uid,
+            f"✅ *Done!* Access granted to *{count} users*.\n"
+            f"⏰ Each user's access extended by *{hours}h*\n"
+            f"📅 New expiry (from now): {expiry_str}",
+            parse_mode="Markdown",
+        )
+    except Exception:
+        pass
 
 
 # ─── Panel Management ─────────────────────────────────────────────────────────
@@ -1477,6 +1580,79 @@ async def my_access_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     uid = update.effective_user.id
+
+    # --- Frozen / stopped state: only "Back to Menu" works ---
+    if context.user_data.get("stopped"):
+        if text == "🏠 Back to Menu":
+            context.user_data.pop("stopped", None)
+            await show_main_menu(update, context)
+        else:
+            await update.message.reply_text(
+                "⏸ Bot is paused.\n\nPress *🏠 Back to Menu* to continue.",
+                reply_markup=STOPPED_KEYBOARD,
+                parse_mode="Markdown",
+            )
+        return
+
+    # --- Admin: give all users access ---
+    if context.user_data.get("awaiting_give_all_access"):
+        context.user_data.pop("awaiting_give_all_access")
+        if uid not in ADMIN_IDS:
+            return
+        try:
+            hours = int(text.strip())
+            if hours <= 0:
+                raise ValueError
+        except ValueError:
+            await update.message.reply_text("❌ Invalid. Send a positive number like `24`.", parse_mode="Markdown")
+            return
+        users = load_users()
+        await update.message.reply_text(
+            f"⏳ Granting *{hours}h* access to *{len(users)} users*...",
+            parse_mode="Markdown",
+        )
+        asyncio.create_task(_do_give_all_access(hours, context.application, uid))
+        return
+
+    # --- Admin: give one user access ---
+    if context.user_data.get("awaiting_give_user_access"):
+        context.user_data.pop("awaiting_give_user_access")
+        if uid not in ADMIN_IDS:
+            return
+        parts = text.strip().split()
+        try:
+            target_uid = int(parts[0])
+            hours = int(parts[1]) if len(parts) >= 2 else ACCESS_HOURS
+            if hours <= 0:
+                raise ValueError
+        except (ValueError, IndexError):
+            await update.message.reply_text(
+                "❌ Invalid format. Send: `user_id hours`\nExample: `123456789 24`",
+                parse_mode="Markdown",
+            )
+            return
+        expiry = grant_access_hours(target_uid, hours)
+        exp_str = datetime.fromtimestamp(expiry).strftime("%H:%M %d/%m/%Y")
+        await update.message.reply_text(
+            f"✅ *Access granted!*\n"
+            f"👤 User: `{target_uid}`\n"
+            f"⏰ Duration: *{hours} hour(s)*\n"
+            f"📅 Expires: {exp_str}",
+            parse_mode="Markdown",
+        )
+        # Notify the target user too
+        try:
+            await context.bot.send_message(
+                target_uid,
+                f"🎉 *You have been granted access!*\n"
+                f"⏰ Duration: *{hours} hour(s)*\n"
+                f"📅 Expires: {exp_str}\n\n"
+                f"Use /start to open the menu.",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            pass
+        return
 
     # --- State machine: prioritise awaiting states ---
     if context.user_data.get("awaiting_check_otp"):
@@ -1633,15 +1809,19 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     # --- Menu button routing ---
     menu_map = {
-        "🚀 Start Scan": start_scan,
-        "🛑 Stop Scan": stop_scan,
-        "🔢 Check Number": check_single_number_start,
-        "➕ Add Panel": handle_add_my_panel,
-        "🗑 Remove Panel": handle_remove_my_panel,
-        "📋 My Panels": my_panels_command,
-        "📊 My Status": my_status_command,
-        "🔗 My Referral": my_referral_command,
-        "⏰ My Access": my_access_command,
+        "🚀 Start Scan":      start_scan,
+        "🛑 Stop Scan":       stop_scan,
+        "🔢 Check Number":    check_single_number_start,
+        "➕ Add Panel":       handle_add_my_panel,
+        "🗑 Remove Panel":    handle_remove_my_panel,
+        "📋 My Panels":       my_panels_command,
+        "📊 My Status":       my_status_command,
+        "🔗 My Referral":     my_referral_command,
+        "⏰ My Access":       my_access_command,
+        # Admin-only buttons
+        "👑 Give All Access":  handle_give_all_access,
+        "👤 Give User Access": handle_give_user_access,
+        "🏠 Back to Menu":     show_main_menu,
     }
     handler = menu_map.get(text)
     if handler:
