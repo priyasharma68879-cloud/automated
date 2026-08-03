@@ -19,6 +19,7 @@ import re
 import sys
 import time
 import base64
+import zlib
 import logging
 import httpx
 from datetime import datetime
@@ -243,19 +244,136 @@ def decode_base64_param(s: str):
         pass
     return None, None
 
+def _normalize_firebase_url(url: str, key: str = "") -> tuple:
+    """
+    Normalize a Firebase URL, expanding short project IDs to full URLs.
+    Short form:  'abc-123'  → 'https://abc-123-default-rtdb.firebaseio.com'
+    Full form:   kept as-is; any auth/key query param is extracted into key.
+    """
+    url = url.strip().rstrip("/")
+    if url.startswith("http"):
+        parsed = urlparse(url)
+        qs = parse_qs(parsed.query)
+        if not key:
+            for k, v in qs.items():
+                if k.lower() in ("key", "auth", "secret", "token"):
+                    key = v[0]
+                    break
+        api_url = (parsed.scheme + "://" + parsed.netloc + parsed.path).rstrip("/")
+        return api_url, key
+    else:
+        # Short project ID — expand to full Firebase Realtime Database URL
+        return f"https://{url}-default-rtdb.firebaseio.com", key
+
+
+def decode_merge_panels(panel_url: str) -> list:
+    """
+    Decode a free-otp-panel.vercel.app/#merge= share URL.
+
+    The #merge= fragment stores Firebase panel credentials encoded as:
+      • Primary:  raw DEFLATE (deflate-raw) compressed bytes → base64
+      • Fallback: uncompressed bytes → base64  (legacy share links)
+
+    After decoding the bytes, the plain-text is one of:
+      • JSON array  — [{"url": "...", "key": "..."}, ...]
+      • CSV pairs   — url1|key1,url2|key2,...
+        (short project IDs such as 'my-app-123' are auto-expanded to full
+         Firebase URLs: 'https://my-app-123-default-rtdb.firebaseio.com')
+
+    Returns a list of (api_url, auth_key) tuples (may be empty on error).
+    """
+    parsed   = urlparse(panel_url)
+    fragment = parsed.fragment            # everything after '#'
+
+    if not fragment.startswith("merge="):
+        return []
+
+    b64 = fragment[6:]                   # strip leading 'merge='
+    b64_padded = b64 + "=" * ((4 - len(b64) % 4) % 4)
+
+    try:
+        raw = base64.b64decode(b64_padded)
+    except Exception as e:
+        logger.error(f"decode_merge_panels — base64 decode error: {e}")
+        return []
+
+    decoded = ""
+
+    # Primary: raw DEFLATE — mirrors browser DecompressionStream('deflate-raw')
+    try:
+        decoded = zlib.decompress(raw, -15).decode("utf-8")
+    except Exception:
+        pass
+
+    # Fallback: legacy uncompressed Latin-1 base64 share links
+    if not decoded:
+        try:
+            decoded = raw.decode("latin-1")
+        except Exception:
+            pass
+
+    if not decoded:
+        logger.error("decode_merge_panels — could not decompress/decode merge value")
+        return []
+
+    # Parse the decoded text into panel list
+    panels: list = []
+    try:
+        stripped = decoded.strip()
+        if stripped.startswith("["):
+            # JSON array format: [{"url": "...", "key": "..."}, ...]
+            shared = json.loads(stripped)
+            for item in shared:
+                u = item.get("url", "") or item.get("u", "")
+                k = item.get("key", "") or item.get("k", "")
+                if u:
+                    panels.append(_normalize_firebase_url(u, k))
+        else:
+            # CSV format: url1|key1,url2|key2,...
+            for part in stripped.split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                segments = part.split("|", 1)
+                u = segments[0].strip()
+                k = segments[1].strip() if len(segments) > 1 else ""
+                if u:
+                    panels.append(_normalize_firebase_url(u, k))
+    except Exception as e:
+        logger.error(f"decode_merge_panels — parse error: {e}")
+
+    logger.info(f"decode_merge_panels — decoded {len(panels)} panel(s) from merge URL")
+    return panels
+
+
 def get_panel_api_url(panel_url: str):
     """
     UNIVERSAL decoder — accepts ANY panel format:
-      1. ZXKAI encoded          — ?s=<xor-base64>
-      2. Profex encoded         — ?s=<base64-with-|||>
-      3. Plain base64 ?s=       — ?s=<base64-of-url>
-      4. Raw Firebase           — https://xxx.firebaseio.com
-      5. Firebase + auth key    — https://xxx.firebaseio.com?auth=KEY
-      6. Firebase + ?s= failing — fallback to raw URL
-      7. Any other URL          — try as-is (web panel API)
-      8. Any URL with ?key=     — extract key param
+      1. free-otp-panel #merge= — fragment with deflate-raw+base64 (1st panel returned)
+      2. ZXKAI encoded          — ?s=<xor-base64>
+      3. Profex encoded         — ?s=<base64-with-|||>
+      4. Plain base64 ?s=       — ?s=<base64-of-url>
+      5. Raw Firebase           — https://xxx.firebaseio.com
+      6. Firebase + auth key    — https://xxx.firebaseio.com?auth=KEY
+      7. Firebase + ?s= failing — fallback to raw URL
+      8. Any other URL          — try as-is (web panel API)
+      9. Any URL with ?key=     — extract key param
+
+    For #merge= URLs that contain multiple panels, call decode_merge_panels()
+    directly so every panel is added individually.
     """
-    parsed  = urlparse(panel_url)
+    # ── Fragment-based merge URL (#merge=...) ─────────────────────────────────
+    parsed_pre = urlparse(panel_url)
+    if parsed_pre.fragment.startswith("merge="):
+        # decode_merge_panels handles multi-panel; return first for single use
+        panels = decode_merge_panels(panel_url)
+        if panels:
+            return panels[0]
+        return None, None
+
+    # ── Strip fragment before further parsing (fragments are client-only) ─────
+    panel_url_clean = panel_url.split("#")[0]
+    parsed  = urlparse(panel_url_clean)
     qs      = parse_qs(parsed.query)
 
     # ── Try ?s= encoded params first ─────────────────────────────────────────
@@ -277,8 +395,8 @@ def get_panel_api_url(panel_url: str):
             return url.rstrip("/"), key
 
     # ── Direct Firebase URL (no ?s= or ?s= failed to decode) ────────────────
-    if ".firebaseio.com" in panel_url or ".firebasedatabase.app" in panel_url:
-        url = panel_url.split("?")[0].split(".json")[0].rstrip("/")
+    if ".firebaseio.com" in panel_url_clean or ".firebasedatabase.app" in panel_url_clean:
+        url = panel_url_clean.split("?")[0].split(".json")[0].rstrip("/")
         auth_key = ""
         for k, v in qs.items():
             if k.lower() in ("key", "auth", "secret", "token"):
@@ -287,8 +405,7 @@ def get_panel_api_url(panel_url: str):
         return url, auth_key
 
     # ── Any other URL — try as a web panel API ───────────────────────────────
-    # Strip query params, look for auth/key in them
-    url = panel_url.split("?")[0].rstrip("/")
+    url = panel_url_clean.split("?")[0].rstrip("/")
     auth_key = ""
     for k, v in qs.items():
         if k.lower() in ("key", "auth", "secret", "token", "apikey", "api_key"):
@@ -1076,6 +1193,8 @@ async def handle_add_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "➕ *Add New Panels*\n\n"
         "Links bhejein (har link nayi line par).\n\n"
         "Supported formats — ANY of these:\n"
+        "• *Merge URL:* `https://free-otp-panel.vercel.app/#merge=...`\n"
+        "  _(automatically imports ALL panels inside the share link)_\n"
         "• Encoded: `http://profex.site.je/?s=...`\n"
         "• ZXKAI: `http://panel.site/?s=...`\n"
         "• Raw Firebase: `https://xxx-default-rtdb.firebaseio.com`\n"
@@ -1253,6 +1372,38 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 if not link.startswith("http"):
                     failed.append(link[:40])
                     continue
+
+                # ── #merge= URL: expand to multiple panels ────────────────────
+                parsed_link = urlparse(link)
+                if parsed_link.fragment.startswith("merge="):
+                    merge_list = decode_merge_panels(link)
+                    if not merge_list:
+                        failed.append(link[:40])
+                        continue
+                    for api_url, auth_key in merge_list:
+                        normalised = api_url.rstrip("/").lower()
+                        if normalised in existing_urls:
+                            dupes += 1
+                            continue
+                        dev_node, msg_node = await discover_structure(client, api_url, auth_key)
+                        if dev_node is None:
+                            dev_node = ""
+                            msg_node = ""
+                        pid = f"p_{int(time.time())}_{added}_{len(panels)}"
+                        panels[pid] = {
+                            "name":         f"Panel {len(panels)+1}",
+                            "api_url":      api_url,
+                            "auth_key":     auth_key,
+                            "device_node":  dev_node if dev_node else None,
+                            "message_node": msg_node,
+                            "panel_url":    link,
+                            "added_date":   datetime.now().strftime("%Y-%m-%d"),
+                        }
+                        existing_urls.add(normalised)
+                        added += 1
+                    continue
+
+                # ── Regular single-URL panel ──────────────────────────────────
                 api_url, auth_key = get_panel_api_url(link)
                 if not api_url:
                     failed.append(link[:40])
