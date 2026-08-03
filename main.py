@@ -38,7 +38,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-from telegram.error import TelegramError
+from telegram.error import TelegramError, Conflict, NetworkError
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -58,6 +58,7 @@ ADMIN_IDS: set[int] = {
 REQUIRED_CHANNELS = [
     {"username": "blankkdealz",     "url": "https://t.me/blankkdealz",      "label": "📢 Blank Dealz"},
     {"username": "earnwithsakx",    "url": "https://t.me/earnwithsakx",     "label": "💰 Earn With Sakx"},
+    {"username": "blankdealzzchat", "url": "https://t.me/blankdealzzchat",  "label": "💬 Blank Dealz Chat"},
 ]
 
 DEFAULT_CAMPAIGN_ID = "ougwl_MjU3MTUyNzI0I1JhaHVs"
@@ -1832,6 +1833,21 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # ─── Entry Point ──────────────────────────────────────────────────────────────
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log errors; handle Conflict gracefully (two instances running simultaneously)."""
+    err = context.error
+    if isinstance(err, Conflict):
+        logger.warning(
+            "Conflict: another bot instance is already polling. "
+            "Ensure only one Railway deployment is active at a time."
+        )
+        return
+    if isinstance(err, NetworkError):
+        logger.warning("Network error (will retry): %s", err)
+        return
+    logger.error("Unhandled exception:", exc_info=err)
+
+
 def main():
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN environment variable is not set. Exiting.")
@@ -1852,6 +1868,7 @@ def main():
     application.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join$"))
     application.add_handler(CallbackQueryHandler(panel_selected_callback, pattern="^panel_"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
+    application.add_error_handler(error_handler)
 
     logger.info("🍊 Swiggy TG Bot starting... (PTB run_polling with graceful shutdown)")
     # run_polling handles SIGINT/SIGTERM automatically — safe for Railway/Docker
