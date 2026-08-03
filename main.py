@@ -63,7 +63,7 @@ REQUIRED_CHANNELS = [
 DEFAULT_CAMPAIGN_ID = "ougwl_MjU3MTUyNzI0I1JhaHVs"
 DEFAULT_SENDER      = "SWIGGY"
 DEFAULT_THRESHOLD   = 190
-DEFAULT_WORKERS     = 15
+DEFAULT_WORKERS     = 5
 OTP_TIMEOUT         = 30
 POLL_INTERVAL       = 0.5
 REFERRALS_FOR_1H    = 3
@@ -581,6 +581,11 @@ class SwiggyClient:
                 headers=self._base_headers(),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
+                if resp.status == 429:
+                    retry_after = int(resp.headers.get("Retry-After", 15))
+                    logger.warning("Swiggy rate-limited (signin-check) — sleeping %ds", retry_after)
+                    await asyncio.sleep(retry_after)
+                    return False
                 if resp.status != 200:
                     return False
                 data = await resp.json()
@@ -597,6 +602,11 @@ class SwiggyClient:
                 headers=self._base_headers(),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
+                if resp.status == 429:
+                    retry_after = int(resp.headers.get("Retry-After", 15))
+                    logger.warning("Swiggy rate-limited (sms-otp) — sleeping %ds", retry_after)
+                    await asyncio.sleep(retry_after)
+                    return False
                 return resp.status == 200
         except Exception as e:
             logger.debug("send_otp sms-otp error: %s", e)
@@ -673,6 +683,11 @@ class SwiggyClient:
                 headers=headers,
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
+                if resp.status == 429:
+                    retry_after = int(resp.headers.get("Retry-After", 15))
+                    logger.warning("Swiggy rate-limited (rewards) — sleeping %ds", retry_after)
+                    await asyncio.sleep(retry_after)
+                    return None
                 if resp.status != 200:
                     return None
                 data = await resp.json()
@@ -712,6 +727,9 @@ async def process_phone(
     progress_callback=None,
 ) -> Optional[dict]:
     async with user_session.semaphore:
+        # Jitter: stagger workers so they don't all hit Swiggy simultaneously
+        await asyncio.sleep(random.uniform(0.3, 2.5))
+
         session = await user_session.get_session()
         client = SwiggyClient(session)
 
